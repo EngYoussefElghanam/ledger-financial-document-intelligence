@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "Block": {
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "content_type": {
+          "enum": [
+            "heading",
+            "paragraph",
+            "table",
+            "list_item",
+            "caption"
+          ],
+          "title": "Content Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "section": {
+          "title": "Section",
+          "type": "string"
+        },
+        "bbox": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        }
+      },
+      "required": [
+        "block_id",
+        "content_type",
+        "text",
+        "section",
+        "bbox"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "Page": {
+      "properties": {
+        "page_number": {
+          "title": "Page Number",
+          "type": "integer"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/Block"
+          },
+          "title": "Blocks",
+          "type": "array"
+        },
+        "tables": {
+          "items": {
+            "$ref": "#/$defs/Table"
+          },
+          "title": "Tables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "page_number",
+        "blocks",
+        "tables"
+      ],
+      "title": "Page",
+      "type": "object"
+    },
+    "Table": {
+      "properties": {
+        "table_id": {
+          "title": "Table Id",
+          "type": "string"
+        },
+        "content_type": {
+          "const": "table",
+          "default": "table",
+          "title": "Content Type",
+          "type": "string"
+        },
+        "section": {
+          "title": "Section",
+          "type": "string"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption"
+        },
+        "bbox": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Bbox",
+          "type": "array"
+        },
+        "num_rows": {
+          "title": "Num Rows",
+          "type": "integer"
+        },
+        "num_cols": {
+          "title": "Num Cols",
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "table_id",
+        "section",
+        "bbox",
+        "num_rows",
+        "num_cols",
+        "rows"
+      ],
+      "title": "Table",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "source_filename": {
+      "title": "Source Filename",
+      "type": "string"
+    },
+    "page_count": {
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/Page"
+      },
+      "title": "Pages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "document_id",
+    "source_filename",
+    "page_count",
+    "pages"
+  ],
+  "title": "ProcessedDocument",
+  "type": "object"
+}

@@ -1,0 +1,4 @@
+docling
+fastapi
+uvicorn
+python-multipart
