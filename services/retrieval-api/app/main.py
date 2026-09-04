@@ -1,6 +1,7 @@
 import uuid
 from fastapi import FastAPI, HTTPException
 from shared.schemas.document import ProcessedDocument
+from shared.schemas.search_request import SearchRequest
 from qdrant_client import models
 
 from app.chunker import create_chunks
@@ -54,5 +55,70 @@ async def ingest_document(doc: ProcessedDocument):
         
         return {"status": "success", "total_chunks": len(chunks)}
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search")
+async def search_documents(request: SearchRequest):
+    try:
+
+        # Translate query to vectors
+        dense_vec = get_dense_vector(request.query)
+        sparse_vec = get_sparse_vector(request.query)
+
+        # A filter is used if the agent wants to search one specific document
+        query_filter = None
+        if request.document_id:
+            query_filter = models.Filter(
+                must = [
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=request.document_id)
+                    )
+                ]
+            )
+
+        # Perform search
+        search_results = qdrant_client.query_points(
+            collection_name="financials",
+            prefetch=[
+                # Search by meaning
+                models.Prefetch(
+                    query=dense_vec,
+                    using="dense",
+                    limit=request.limit,
+                ),
+                # Search by exact keyword match
+                models.Prefetch(
+                    query=models.SparseVector(
+                        indices=sparse_vec["indices"],
+                        values=sparse_vec["values"]
+                    ),
+                    using="bm25",
+                    limit=request.limit,
+                )
+            ],
+            # Fuse the two sub-queries together
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            query_filter=query_filter,
+            limit=request.limit
+        )
+
+        formatted_results = []
+        for point in search_results.points:
+            formatted_results.append({
+                "score": point.score,
+                "text": point.payload.get("text"),
+                "metadata": {
+                    "document_id": point.payload.get("document_id"),
+                    "page_number": point.payload.get("page_number"),
+                    "section": point.payload.get("section"),
+                    "type": point.payload.get("type")
+                }
+            })
+
+        return {"results": formatted_results}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
