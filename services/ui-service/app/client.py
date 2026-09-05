@@ -1,3 +1,13 @@
+"""
+Thin HTTP client to orchestrator-api.
+
+E6 owns this file. The UI should never call retrieval-api, agent-service,
+or answer-validator-api directly — everything goes through the orchestrator.
+
+Set USE_MOCK=True while E4's orchestrator-api isn't ready yet, so you can
+build and demo the Gradio UI in isolation. Flip it to False once /ask is live.
+"""
+
 import os
 import random
 import requests
@@ -6,7 +16,7 @@ ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8000")
 USE_MOCK = os.getenv("USE_MOCK", "true").lower() == "true"
 
 
-# Mock responses
+# --- Mock responses, one per schema type, so you can exercise every render path ---
 _MOCK_RESPONSES = [
     {
         "answer_type": "direct",
@@ -39,7 +49,12 @@ _MOCK_RESPONSES = [
 
 
 def ask_question(question: str, document_id: str | None = None) -> dict:
- 
+    """
+    Send a question to the orchestrator and return the schema-compliant
+    answer dict: {answer_type, evidence, params}.
+
+    Raises requests.HTTPError on non-2xx responses when not mocking.
+    """
     if USE_MOCK:
         return random.choice(_MOCK_RESPONSES)
 
@@ -53,7 +68,12 @@ def ask_question(question: str, document_id: str | None = None) -> dict:
 
 
 def get_dashboard_data() -> dict:
-   
+    """
+    Pulls corpus-level stats for the Dashboard tab:
+    indexed doc count, doc list, detected tables, recent queries + latency.
+
+    Mocked until orchestrator-api (or eval-service) exposes a real endpoint.
+    """
     if USE_MOCK:
         return {
             "num_documents": 2758,
@@ -62,8 +82,8 @@ def get_dashboard_data() -> dict:
                 {"document_id": "doc_041", "name": "jabil-circuit-inc_2019.pdf", "pages": 1},
             ],
             "recent_queries": [
-                {"question": "What was the operating income in 2020?", "latency_ms": 842},
-                {"question": "Compare finished goods between CTS and Jabil", "latency_ms": 1210},
+                {"question": "What was the operating income in 2020?", "latency_ms": 842, "timestamp": "2026-09-05 14:02:11"},
+                {"question": "Compare finished goods between CTS and Jabil", "latency_ms": 1210, "timestamp": "2026-09-05 14:05:47"},
             ],
         }
 
@@ -73,7 +93,13 @@ def get_dashboard_data() -> dict:
 
 
 def get_documents() -> list[dict]:
-   
+    """
+    Pulls the full indexed document list for the Documents tab:
+    per-document id, name, page count, detected tables, and any
+    extracted structured values (from doc-processor-api's output).
+
+    Mocked until orchestrator-api exposes a real /documents endpoint.
+    """
     if USE_MOCK:
         return [
             {
@@ -105,7 +131,12 @@ def get_documents() -> list[dict]:
 
 
 def get_document_detail(document_id: str) -> dict:
-   
+    """
+    Pulls full detail for a single document — used when the user selects
+    a row in the Documents tab table to inspect its extracted content.
+
+    Mocked until orchestrator-api exposes a real endpoint.
+    """
     if USE_MOCK:
         docs = {d["document_id"]: d for d in get_documents()}
         doc = docs.get(document_id)

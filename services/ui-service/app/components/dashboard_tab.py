@@ -15,7 +15,7 @@ def build_dashboard_tab():
             interactive=False,
         )
         query_table = gr.Dataframe(
-            headers=["question", "latency_ms"],
+            headers=["question", "latency_ms", "timestamp"],
             label="Recent queries",
             interactive=False,
         )
@@ -27,7 +27,7 @@ def build_dashboard_tab():
                 for d in data.get("documents", [])
             ]
             queries = [
-                [q["question"], q["latency_ms"]]
+                [q["question"], q["latency_ms"], q.get("timestamp", "")]
                 for q in data.get("recent_queries", [])
             ]
             return data.get("num_documents", 0), docs, queries
