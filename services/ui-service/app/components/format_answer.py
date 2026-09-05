@@ -1,6 +1,3 @@
-
-
-
 def _format_evidence(evidence: list[dict]) -> str:
     if not evidence:
         return '<div class="evidence-line">no evidence cited</div>'

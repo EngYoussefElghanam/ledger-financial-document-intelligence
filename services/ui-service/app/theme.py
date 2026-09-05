@@ -1,5 +1,3 @@
-
-
 import gradio as gr
 
 BG = "#0D0F0C"        
