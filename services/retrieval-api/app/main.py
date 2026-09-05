@@ -6,7 +6,7 @@ from qdrant_client import models
 
 from app.chunker import create_chunks
 from app.database import qdrant_client, init_db
-from app.embeddings import get_dense_vector, get_sparse_vector
+from app.embeddings import get_dense_vector, get_sparse_vector, get_rerank_scores
 
 app = FastAPI(title="Retrieval API", description="An API that retrievs the relevant parts from the document")
 
@@ -67,6 +67,8 @@ async def search_documents(request: SearchRequest):
         dense_vec = get_dense_vector(request.query)
         sparse_vec = get_sparse_vector(request.query)
 
+        fetch_limit = max(request.limit * 4, 20) # set minimum fetched chunks to 20
+
         # A filter is used if the agent wants to search one specific document
         query_filter = None
         if request.document_id:
@@ -102,8 +104,20 @@ async def search_documents(request: SearchRequest):
             # Fuse the two sub-queries together
             query=models.FusionQuery(fusion=models.Fusion.RRF),
             query_filter=query_filter,
-            limit=request.limit
+            limit=fetch_limit
         )
+
+        if not search_results.points:
+            return {"results": []}
+
+        candidate_texts = [point.payload.get("text") for point in search_results.points]
+
+        rerank_scores = get_rerank_scores(request.query, candidate_texts)
+
+        for point, score in zip(search_results.points, rerank_scores):
+            point.score = score # Overwrite Qdrant RRF score with the Reranker score
+
+        search_results.points.sort(key=lambda x: x.score, reverse=True)
 
         formatted_results = []
         for point in search_results.points:
