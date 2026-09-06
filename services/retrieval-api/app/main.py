@@ -33,7 +33,10 @@ async def ingest_document(doc: ProcessedDocument):
             # Package vectors and payload together
             points_to_upsert.append(
                 models.PointStruct(
-                    id=str(uuid.uuid5()), # A unique id for our point
+                    # uuid5 makes a unique determinestic id based on some input you give it (chunk_id in this case)
+                    # we use uuid5 instead of 4, as this helps us generate the same id if the user enters-
+                    # duplicate files in the program
+                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk.chunk_id)), # A unique id for our point
                     vector={
                         "dense": dense_vec,
                         "bm25": models.SparseVector(
