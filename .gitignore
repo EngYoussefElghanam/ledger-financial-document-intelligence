@@ -2,7 +2,8 @@
 __pycache__
 data
 *.pyc
-*.egg-info.DS_Store
+*.egg-info/
+.DS_Store
 batch_eval_report.json
 data/processed/
 data/uploads/
