@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from app.main import app
-from shared.schemas.document import ProcessedDocument
+from schemas.document import ProcessedDocument
 from app.chunker import create_chunks
 
 # Initialize the test client

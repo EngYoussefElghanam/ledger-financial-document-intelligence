@@ -1,7 +1,7 @@
 import uuid
 from fastapi import FastAPI, HTTPException
-from shared.schemas.document import ProcessedDocument
-from shared.schemas.search_request import SearchRequest
+from schemas.document import ProcessedDocument
+from schemas.search_request import SearchRequest
 from qdrant_client import models
 
 from app.chunker import create_chunks

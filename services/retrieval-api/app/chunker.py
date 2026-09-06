@@ -1,4 +1,4 @@
-from shared.schemas.document import ProcessedDocument
+from schemas.document import ProcessedDocument
 from chunk_schema import Chunk
 
 
