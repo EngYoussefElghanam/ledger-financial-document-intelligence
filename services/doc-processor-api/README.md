@@ -55,6 +55,8 @@ Full JSON Schema is auto-generated at `shared/schemas/document.schema.json` via 
 
 ## Running locally
 
+**Requires Python 3.11 or 3.12.** Python 3.14 is not yet reliably supported by PyTorch/RapidOCR's compiled native extensions and can cause a hard segmentation fault on certain PDFs — see Known Limitations #3.
+
 ```bash
 # one-time: install the shared schema package
 pip install -e ../../shared
@@ -100,8 +102,8 @@ python batch_eval.py /path/to/pdf/directory
 
 | Metric | Result |
 |---|---|
-| Documents processed | 2,191 / 2,207 |
-| Hard failures | 0 (in final run) |
+| Documents processed | 2,192 / 2,207 |
+| Hard failures | 0 |
 | Empty pages | 0 |
 | Miscounted tables (num_rows/num_cols mismatch) | 0 |
 | Avg time per document | 7.24s |
@@ -116,20 +118,29 @@ python batch_eval.py /path/to/pdf/directory
 **2. Documented, not patched — inconsistent row-splitting on wrapped table cells.**
 When a table cell's text wraps across two lines, docling's TableFormer occasionally splits it into two separate rows instead of one (e.g. a company name like "Marine Exhaust Technology Ltd." becoming two rows). Confirmed on 2 of ~11+ similar wrapped-cell cases checked across multiple real documents; a visually identical wrapped cell in other documents did *not* split. Given the inconsistency, a corrective heuristic (e.g. merging mostly-blank rows) was deliberately avoided, since it risks corrupting other legitimately sparse rows elsewhere in the corpus. Root cause: table structure recognition (TableFormer), not this service's mapping logic.
 
-**3. One document causes a hard crash — quarantined.**
-Document `2c52b143491fd26153a2159c6f2c1ab1` triggers a segmentation fault inside docling/RapidOCR's native code, reproduced consistently in an isolated, fresh-process run. Since a segfault cannot be caught by Python exception handling, this document was excluded from the corpus (moved to `data/quarantine/`) rather than allowed to halt the full batch run. Root cause not investigated further at the native-code level, given project time constraints.
+**3. Resolved — one document appeared to cause a hard crash; root cause was the local Python version, not the document.**
+Document `2c52b143491fd26153a2159c6f2c1ab1` triggered a segmentation fault when processed under a local **Python 3.14** environment, reproduced consistently in an isolated, fresh-process run. Since a segfault cannot be caught by Python exception handling, it initially had to be excluded from the corpus (quarantined) to let the full batch run complete. Root-caused by re-running the identical, unmodified file under **Python 3.12**: it processed successfully with no errors. Python 3.14 was released very recently and PyTorch/RapidOCR's compiled native extensions don't yet reliably support it. The Docker image was never affected, since it explicitly pins `python:3.11-slim`. **Resolution:** run local development on Python 3.11–3.12, not 3.14; the document has been restored to the corpus.
 
 **4. Non-issue — automated "suspicious table" flag has false positives.**
 `batch_eval.py` flags any table with ≤1 row or column as suspicious. Manual review of both flagged cases in the full run showed correct extractions of genuinely small tables: a 1-column sidebar navigation menu (not real financial data) and a genuinely single-column source table (a definition/formula list with no numeric column in the original PDF). No real data loss found among flagged cases.
 
-## Docker (optional)
+## Docker
 
-Docker is a bonus per the project spec, not a requirement. A `Dockerfile`, `app/warmup.py` (pre-downloads docling's model weights at build time so the first real request isn't slow), and `.dockerignore` are included and ready to use, but not required to run the service — see "Running locally" above.
+Docker is a bonus per the project spec, not a requirement, but this service is fully containerized and verified working.
+
+The Dockerfile pins Python 3.11 explicitly (side-stepping the Python 3.14 issue above entirely) and installs `torch`/`torchvision` as an exact matched pair via a pip constraints file — installing them separately or from mismatched sources causes a native `operator torchvision::nms does not exist` crash at runtime. `app/warmup.py` runs a real, self-contained one-page PDF conversion at build time (not just constructing `DocumentConverter()`, which does *not* trigger RapidOCR's lazy model downloads) so the resulting image already has all model weights cached — no live downloads on a container's first real request.
+
+The Dockerfile lives inside this service's own folder (not the repo root) to avoid colliding with other services' Dockerfiles; the build context is still the repo root.
 
 ```bash
 # from the repo root
-docker build -t doc-processor-api -f Dockerfile .
+docker build -t doc-processor-api -f services/doc-processor-api/Dockerfile .
 docker run -p 8000:8000 doc-processor-api
+```
+
+To build with GPU-enabled torch instead of the CPU-only default (requires an NVIDIA GPU + NVIDIA Container Toolkit on the host, and `docker run --gpus all`):
+```bash
+docker build -t doc-processor-api -f services/doc-processor-api/Dockerfile --build-arg TORCH_VARIANT=cuda .
 ```
 
 ## Status / what's left
@@ -138,6 +149,6 @@ docker run -p 8000:8000 doc-processor-api
 - [x] `processor.py` (docling wrapper)
 - [x] FastAPI endpoints
 - [x] Tests (8/8 passing)
-- [x] Full corpus structural validation (2,191/2,207 documents)
+- [x] Full corpus structural validation (2,192/2,207 documents)
+- [x] Docker containerization, built and verified working
 - [ ] Merge `feature/doc-processor` into `main`
-- [ ] Docker containerization (optional)
