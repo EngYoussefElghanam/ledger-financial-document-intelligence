@@ -33,7 +33,7 @@ async def ingest_document(doc: ProcessedDocument):
             # Package vectors and payload together
             points_to_upsert.append(
                 models.PointStruct(
-                    id=str(uuid.uuid4()), # A unique id for our point
+                    id=str(uuid.uuid5()), # A unique id for our point
                     vector={
                         "dense": dense_vec,
                         "bm25": models.SparseVector(
@@ -82,6 +82,13 @@ async def search_documents(request: SearchRequest):
             )
 
         # Perform search
+        # This performs 2 searchs, one use the "dense" and one using "bm25"
+        # Each search returns results of size fetch_limit, thus the total search has size 2 * fetch_limit
+        # Then the 2 search results are ranked using models.fusion.RRF, and then trimmed to the top-
+        # fetch_limit results
+        # We limit it at fetch_limit and not request_limit as we fetch a relatively big subset here-
+        # which will be passed to another ranking algorithm, then the results are trimmed to the first-
+        # "request_limit" chunks
         search_results = qdrant_client.query_points(
             collection_name="financials",
             prefetch=[
@@ -89,7 +96,7 @@ async def search_documents(request: SearchRequest):
                 models.Prefetch(
                     query=dense_vec,
                     using="dense",
-                    limit=request.limit,
+                    limit=fetch_limit,
                 ),
                 # Search by exact keyword match
                 models.Prefetch(
@@ -98,7 +105,7 @@ async def search_documents(request: SearchRequest):
                         values=sparse_vec["values"]
                     ),
                     using="bm25",
-                    limit=request.limit,
+                    limit=fetch_limit,
                 )
             ],
             # Fuse the two sub-queries together
@@ -112,6 +119,13 @@ async def search_documents(request: SearchRequest):
 
         candidate_texts = [point.payload.get("text") for point in search_results.points]
 
+
+        # This is an additional ranker that ranks the chunks
+        # The idea is that this ranker is heavier and better than the previous method above-
+        # so running this on the entire texts is gonna be heavy-
+        # so instead we retrieve "fetch_limit" chunks using the lighter ranking method-
+        # then we run this heavier one on the fetched subset of chunks-
+        # to have better ranks for the chunks
         rerank_scores = get_rerank_scores(request.query, candidate_texts)
 
         for point, score in zip(search_results.points, rerank_scores):
@@ -131,6 +145,8 @@ async def search_documents(request: SearchRequest):
                     "type": point.payload.get("type")
                 }
             })
+
+        formatted_results = formatted_results[:request.limit]
 
         return {"results": formatted_results}
 
