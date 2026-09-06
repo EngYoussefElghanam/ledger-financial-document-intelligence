@@ -8,3 +8,5 @@ batch_eval_report.json
 data/processed/
 data/uploads/
 .DS_Store
+venv*/
+.venv/
