@@ -59,15 +59,28 @@ def analyze_document(doc) -> dict:
     }
 
 
-def main(pdf_dir: str, limit: int | None) -> None:
+def main(pdf_dir: str, limit: int | None, offset: int = 0) -> None:
     dir_path = Path(pdf_dir)
     pdf_paths = sorted(dir_path.glob("*.pdf"))
+    if offset:
+        pdf_paths = pdf_paths[offset:]
     if limit:
         pdf_paths = pdf_paths[:limit]
 
     if not pdf_paths:
         print(f"No PDFs found in {pdf_dir}")
         return
+
+    # Resume support: skip PDFs that already have persisted output from a
+    # previous run (e.g. after a segfault/crash partway through a big batch).
+    # Uses the filename stem as document_id, matching process_pdf()'s default.
+    processed_dir = Path("data/processed")
+    already_done = {p.stem for p in processed_dir.glob("*.json")} if processed_dir.exists() else set()
+    if already_done:
+        before = len(pdf_paths)
+        pdf_paths = [p for p in pdf_paths if p.stem not in already_done]
+        print(f"Resuming: skipping {before - len(pdf_paths)} already-processed PDFs "
+              f"(found in {processed_dir}/)\n")
 
     print(f"Processing {len(pdf_paths)} PDFs from {pdf_dir}...\n")
 
@@ -79,6 +92,12 @@ def main(pdf_dir: str, limit: int | None) -> None:
         print(f"[{i}/{len(pdf_paths)}] {path.name} ... ", end="", flush=True)
         try:
             doc = process_pdf(str(path))
+
+            # Persist immediately, not just at the end - so a crash mid-run
+            # (segfault, OOM, etc.) never loses work that already succeeded.
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            (processed_dir / f"{doc.document_id}.json").write_text(doc.model_dump_json(indent=2))
+
             analysis = analyze_document(doc)
             results.append(analysis)
 
@@ -149,5 +168,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf_dir", help="Directory containing PDFs to process")
     parser.add_argument("--limit", type=int, default=None, help="Max number of PDFs to process")
+    parser.add_argument("--offset", type=int, default=0, help="Skip this many PDFs before starting (for chunked runs)")
     args = parser.parse_args()
-    main(args.pdf_dir, args.limit)
+    main(args.pdf_dir, args.limit, args.offset)
