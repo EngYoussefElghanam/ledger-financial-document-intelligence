@@ -1,9 +1,12 @@
+import os
 import re
 import httpx
 import numexpr
 from langchain_core.tools import tool
+from typing import Optional
 
-RETRIEVAL_API_URL = "http://localhost:8000"
+
+RETRIEVAL_API_URL = os.getenv("RETRIEVAL_API_URL", "http://localhost:8000")
 
 
 @tool
@@ -25,7 +28,7 @@ def calculate(expression: str) -> dict:
 
 
 @tool
-def search_documents(query: str, document_id: str = None, limit: int = 5) -> list:
+def search_documents(query: str, document_id: Optional[str] = None, limit: int = 5) -> list:
     """
     Search across financial documents for relevant text and table chunks.
     Use this for text-based or general questions before answering.
@@ -48,7 +51,7 @@ def search_documents(query: str, document_id: str = None, limit: int = 5) -> lis
 
 
 @tool
-def search_tables(query: str, document_id: str = None, limit: int = 5) -> list:
+def search_tables(query: str, document_id: Optional[str] = None, limit: int = 5) -> list:
     """
     Search specifically for table chunks relevant to the query.
     Use this when the question requires data from a financial table.
@@ -65,7 +68,7 @@ def search_tables(query: str, document_id: str = None, limit: int = 5) -> list:
 
 
 @tool
-def filter_documents(document_id: str = None, section: str = None, content_type: str = None) -> list:
+def filter_documents(document_id: Optional[str] = None, section: Optional[str] = None, content_type: Optional[str] = None) -> list:
     """
     Filter and list indexed document chunks by metadata, without a search query.
     Use this when the question is about a specific document, section, or
