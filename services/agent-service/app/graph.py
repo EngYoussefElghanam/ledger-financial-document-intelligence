@@ -27,6 +27,7 @@ class AgentState(TypedDict):
 
 
 def extract_text(content) -> str:
+    """Extract plain text from model responses, handling string and block lists."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -36,6 +37,7 @@ def extract_text(content) -> str:
 
 
 def classify_question(state: AgentState) -> dict:
+    """Classifies question phrasing into: numerical, table, or text."""
     prompt = f"""Classify this financial question into exactly one category, based on how the question is PHRASED, not on where the answer might typically be found in a document:
 - "numerical": explicitly requires a calculation (sum, difference, percentage change, comparison between values)
 - "table": explicitly references tabular structure — rows, columns, a specific line item compared across multiple periods, or comparing several structured values at once
@@ -57,11 +59,12 @@ Reply with ONLY one word: numerical, table, or text."""
 
 
 def retrieve_evidence(state: AgentState) -> dict:
+    """Retrieves relevant chunks using semantic search, table lookup, or metadata filtering."""
     question = state["question"]
     doc_id = state.get("document_id")
     q_lower = question.lower()
 
-    # فحص إذا كان السؤال يحدد قسماً مالياً بعينه (Metadata filtering)
+    # Check if question explicitly targets a known financial section (Metadata filtering)
     known_sections = [
         "income statement", 
         "balance sheet", 
@@ -71,7 +74,7 @@ def retrieve_evidence(state: AgentState) -> dict:
     ]
     matched_section = next((sec for sec in known_sections if sec in q_lower), None)
 
-    # 1. لو محدد قسم معين مع وجود document_id، نستخدم filter_documents
+    # 1. Use filter_documents if a specific section and document_id are targeted
     if matched_section and doc_id:
         print(f"[AGENT] retrieve_evidence: Using filter_documents for section '{matched_section}'")
         c_type = "table" if state["question_type"] == "table" else None
@@ -80,14 +83,13 @@ def retrieve_evidence(state: AgentState) -> dict:
             "section": matched_section,
             "content_type": c_type
         })
-        # لو رجع نتائج سليمة نعتمدها، وإلا نرجع للـ search العادي
         if results and "error" not in results[0]:
             return {"evidence": results[:5]}
 
-    # 2. لو السؤال table
+    # 2. Table-specific retrieval
     if state["question_type"] == "table":
         results = search_tables.invoke({"query": question, "document_id": doc_id, "limit": 5})
-    # 3. البحث العام
+    # 3. General corpus search
     else:
         results = search_documents.invoke({"query": question, "document_id": doc_id, "limit": 5})
 
@@ -95,6 +97,7 @@ def retrieve_evidence(state: AgentState) -> dict:
 
 
 def check_evidence_sufficiency(state: AgentState) -> dict:
+    """Verifies whether retrieved evidence contains sufficient context to answer."""
     evidence = state["evidence"]
 
     if not evidence or (evidence and "error" in evidence[0]):
@@ -106,6 +109,7 @@ def check_evidence_sufficiency(state: AgentState) -> dict:
 
     q_type = state.get("question_type", "text")
 
+    # For numerical questions, check if required numbers for calculation exist
     if q_type == "numerical":
         prompt = f"""{evidence_text}
 
@@ -124,7 +128,9 @@ Reply with ONLY one word: yes or no."""
 
     return {"is_sufficient": "yes" in answer}
 
+
 def route_after_evidence_check(state: AgentState) -> str:
+    """Conditional routing based on evidence sufficiency and question category."""
     if state["is_sufficient"]:
         if state["question_type"] == "numerical":
             return "extract_and_calculate"
@@ -136,6 +142,7 @@ def route_after_evidence_check(state: AgentState) -> str:
 
 
 def extract_and_calculate(state: AgentState) -> dict:
+    """Extracts arithmetic operands and formula, then executes deterministic calculation tool."""
     question = state["question"]
     evidence = state["evidence"]
 
@@ -177,14 +184,14 @@ If the evidence does not contain the numbers needed to answer, reply with:
     if not formula:
         return {"calculation": None}
 
-    # التحقق من أمان المعادلة
+    # Security check: ensure expression contains only valid mathematical characters
     if not re.fullmatch(r"[0-9\.\+\-\*\/\(\)\s%]+", formula):
         return {"calculation": None}
 
-    # تنفيذ الأداة فعلياً
+    # Execute deterministic calculation tool via Python
     tool_result = calculate.invoke({"expression": formula})
 
-    # التأكد من نجاح الأداة وأن النتيجة رقم صريح
+    # Verify tool execution succeeded and returned a valid numeric result
     if not isinstance(tool_result, dict) or not tool_result.get("success"):
         return {"calculation": None}
 
@@ -201,7 +208,7 @@ If the evidence does not contain the numbers needed to answer, reply with:
         if i < len(evidence)
     ]
 
-    # ضمان عدم وجود evidence فاضية أبداً لتجنب رفض الـ validator
+    # Fallback: ensure evidence citation is non-empty to satisfy strict schema validation
     if not operand_evidence and evidence:
         operand_evidence = [{
             "document_id": evidence[0].get("metadata", {}).get("document_id"),
@@ -219,19 +226,20 @@ If the evidence does not contain the numbers needed to answer, reply with:
 
 
 def route_after_calculation(state: AgentState) -> str:
-    """مسار شرطي: لو الحساب نجح روح لـ generate_answer، لو فشل روح لـ insufficient_evidence"""
+    """Conditional routing: route to generate_answer if calculation succeeded, else insufficient_evidence."""
     if state.get("calculation"):
         return "generate_answer"
     return "insufficient_evidence"
 
 
 def generate_answer(state: AgentState) -> dict:
+    """Generates strict schema-compliant response grounded in retrieved evidence."""
     question = state["question"]
     evidence = state["evidence"]
     q_type = state["question_type"]
     calculation = state.get("calculation")
 
-    # لو السؤال numerical والحساب جهز بنجاح
+    # For numerical questions, return deterministic calculation result
     if calculation:
         return {
             "answer": {
@@ -287,6 +295,7 @@ Rules:
 
 
 def insufficient_evidence_node(state: AgentState) -> dict:
+    """Returns fallback insufficient_evidence answer when context is missing."""
     return {
         "answer": {
             "answer_type": "insufficient_evidence",
@@ -297,10 +306,12 @@ def insufficient_evidence_node(state: AgentState) -> dict:
 
 
 def increment_retry(state: AgentState) -> dict:
+    """Increments retry counter for conditional looping."""
     return {"retries": state["retries"] + 1}
 
 
 def build_graph():
+    """Constructs and compiles the StateGraph reasoning pipeline."""
     workflow = StateGraph(AgentState)
 
     workflow.add_node("classify_question", classify_question)
@@ -315,7 +326,7 @@ def build_graph():
     workflow.add_edge("classify_question", "retrieve_evidence")
     workflow.add_edge("retrieve_evidence", "check_evidence_sufficiency")
 
-    # التوجيه الشرطي بعد فحص كفاية الدليل
+    # Conditional routing based on evidence sufficiency
     workflow.add_conditional_edges(
         "check_evidence_sufficiency",
         route_after_evidence_check,
@@ -329,7 +340,7 @@ def build_graph():
 
     workflow.add_edge("increment_retry", "retrieve_evidence")
 
-    # توجيه شرطي بعد الحساب: لو فشل الحساب يروح لـ insufficient_evidence
+    # Conditional routing after calculation
     workflow.add_conditional_edges(
         "extract_and_calculate",
         route_after_calculation,

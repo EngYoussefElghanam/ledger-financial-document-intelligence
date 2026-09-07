@@ -7,16 +7,16 @@ from app.graph import graph
 
 app = FastAPI(
     title="agent-service",
-    description="LEDGER reasoning agent — classifies the question, retrieves evidence, "
+    description="LEDGER reasoning agent — classifies questions, retrieves evidence, "
                 "verifies sufficiency, calculates when needed, and returns a "
-                "schema-compliant answer.",
+                "strict schema-compliant answer.",
     version="0.1.0",
 )
 
 
 class AskRequest(BaseModel):
     question: str
-    document_id: Optional[str] = None  # اختياري: تحديد مستند بعينه، وإلا بحث على الـcorpus كله
+    document_id: Optional[str] = None  # Optional: target a specific document, otherwise searches across the entire corpus
 
 
 class AskResponse(BaseModel):
@@ -26,15 +26,17 @@ class AskResponse(BaseModel):
 
 
 @app.get("/health")
-def health():
+def health() -> dict:
+    """Liveness check endpoint."""
     return {"status": "ok", "service": "agent-service"}
 
 
 @app.post("/ask", response_model=AskResponse)
 def ask(request: AskRequest):
     """
-    نقطة الدخول الرئيسية: بتاخد سؤال (وممكن document_id اختياري)،
-    وبتشغّل الـLangGraph pipeline كامل، وبترجع answer متوافق مع الـstrict schema.
+    Main entrypoint: accepts a question (and optional document_id),
+    executes the full LangGraph reasoning pipeline, and returns
+    a strict-schema compliant answer.
     """
     if not request.question or not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
@@ -53,7 +55,7 @@ def ask(request: AskRequest):
     try:
         result = graph.invoke(initial_state)
     except Exception as e:
-        # لو حصل خطأ غير متوقع في الـpipeline نفسه (زي انقطاع retrieval-api)
+        # Unexpected pipeline error (e.g. retrieval-api connection failure)
         raise HTTPException(status_code=500, detail=f"agent pipeline error: {e}")
 
     answer = result.get("answer") or {
@@ -66,5 +68,5 @@ def ask(request: AskRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    # شغّلها بـ: python -m app.main  (أو uvicorn app.main:app --reload --port 8003)
+    # Run directly: uvicorn app.main:app --reload --port 8003
     uvicorn.run("app.main:app", host="0.0.0.0", port=8003, reload=True)
