@@ -6,7 +6,7 @@ from qdrant_client import models
 
 from app.chunker import create_chunks
 from app.database import qdrant_client, init_db
-from app.embeddings import get_dense_vector, get_sparse_vector, get_rerank_scores
+from app.embeddings import get_dense_vectors, get_sparse_vectors, get_rerank_scores
 
 app = FastAPI(title="Retrieval API", description="An API that retrievs the relevant parts from the document")
 
@@ -20,15 +20,20 @@ async def ingest_document(doc: ProcessedDocument):
         # Creates the chunks from the doc
         chunks = create_chunks(doc)
 
+        # A list of the text of all chunks
+        chunk_texts = [chunk.text for chunk in chunks]
+
+        # We convert the chunks to 2 vector represntations, each with its own benefits
+        # And then we use them together to better our search   
+        # We also use fastembed's inner parallelization technique, ie the full text is passed on to fastembed once instead of-
+        # passing each chunk on its own, and it processes all the chunks together in parallel
+        dense_vectors = get_dense_vectors(chunk_texts) # This is good in understand the context of the search
+        sparse_vectors = get_sparse_vectors(chunk_texts) # This is good in matching keywords from the search query
+
         # Qdrant (our vector database) requires that we store each item as a "point" object
         points_to_upsert = []
         
-        for chunk in chunks:
-
-            # We convert the chunk to 2 vector represntations, each with its own benefits
-            # And then we use them together to better our search
-            dense_vec = get_dense_vector(chunk.text) # This is good in understand the context of the search
-            sparse_vec = get_sparse_vector(chunk.text) # This is good in matching keywords from the search query
+        for chunk, dense_vec, sparse_vec in zip(chunks, dense_vectors, sparse_vectors):         
             
             # Package vectors and payload together
             points_to_upsert.append(
@@ -36,12 +41,12 @@ async def ingest_document(doc: ProcessedDocument):
                     # uuid5 makes a unique determinestic id based on some input you give it (chunk_id in this case)
                     # we use uuid5 instead of 4, as this helps us generate the same id if the user enters-
                     # duplicate files in the program
-                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk.chunk_id)), # A unique id for our point
+                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, str(chunk.chunk_id))), # A unique id for our point
                     vector={
                         "dense": dense_vec,
                         "bm25": models.SparseVector(
-                            indices=sparse_vec["indices"], 
-                            values=sparse_vec["values"]
+                            indices=sparse_vec.indices, 
+                            values=sparse_vec.values
                         )
                     },
                     # We only use the vectors for search; but the ai model will need the original text;
@@ -67,8 +72,12 @@ async def search_documents(request: SearchRequest):
     try:
 
         # Translate query to vectors
-        dense_vec = get_dense_vector(request.query)
-        sparse_vec = get_sparse_vector(request.query)
+        # We pass the query as a list, as our functions expects a list of strings
+        # Also the function returns a list of vectors, and since we only expect there to be one vector-
+        # which is the vector embedding for the query we sent, then we only take the 0th vector in the list-
+        # Which is the only vector there
+        dense_vec = get_dense_vectors([request.query])[0]
+        sparse_vec = get_sparse_vectors([request.query])[0]
 
         fetch_limit = max(request.limit * 4, 20) # set minimum fetched chunks to 20
 
@@ -104,8 +113,8 @@ async def search_documents(request: SearchRequest):
                 # Search by exact keyword match
                 models.Prefetch(
                     query=models.SparseVector(
-                        indices=sparse_vec["indices"],
-                        values=sparse_vec["values"]
+                        indices=sparse_vec.indices,
+                        values=sparse_vec.values
                     ),
                     using="bm25",
                     limit=fetch_limit,
