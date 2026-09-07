@@ -1,6 +1,8 @@
 from qdrant_client import QdrantClient, models
 
-qdrant_client = QdrantClient(":memory:")
+# qdrant_client = QdrantClient(":memory:")
+
+qdrant_client = QdrantClient(path="./qdrant_data")
 
 def init_db(collection_name : str = "financials"):
     if not qdrant_client.collection_exists(collection_name):
