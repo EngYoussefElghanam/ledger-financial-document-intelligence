@@ -1,2 +1,11 @@
-.env
+.env.DS_Store
+**/.DS_Store
+__pycache__/
+*.pyc
+*.egg-info/
+data/
+*.zip
+batch_eval_report.json
+tests/fixtures/*.pdf
+.vscode/
 qdrant_data/
