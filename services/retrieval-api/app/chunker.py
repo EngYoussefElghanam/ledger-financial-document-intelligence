@@ -1,5 +1,5 @@
 from schemas.document import ProcessedDocument
-from chunk_schema import Chunk
+from app.chunk_schema import Chunk
 
 
 
