@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.git/
+.gitignore
+data/processed/
+data/uploads/
+*.json
+!document.schema.json
+.pytest_cache/

@@ -2,3 +2,4 @@ docling
 fastapi
 uvicorn
 python-multipart
+-e ../../shared
