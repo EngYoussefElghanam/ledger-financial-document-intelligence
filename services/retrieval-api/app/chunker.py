@@ -16,16 +16,13 @@ def create_chunks(doc: ProcessedDocument):
     chunks = []
 
     for page in doc.pages:
-        current_heading = "General Context"
 
         # Parent-Child text chunking
         # This is used to group each section with its title into 1 chunk
         for block in page.blocks:
-            if block.content_type == "heading":
-                current_heading = block.text
 
-            elif block.content_type in ["paragraph", "list_item"]:
-                rich_text = f"Section: {current_heading} \n Content: {block.text}"
+            if block.content_type in ["paragraph", "list_item"]:
+                rich_text = f"Section: {block.section} \n Content: {block.text}"
 
                 chunks.append(
                     Chunk(
