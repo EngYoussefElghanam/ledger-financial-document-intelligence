@@ -59,10 +59,14 @@ Reply with ONLY one word: numerical, table, or text."""
 
 
 def retrieve_evidence(state: AgentState) -> dict:
-    """Retrieves relevant chunks using semantic search, table lookup, or metadata filtering."""
+    """Retrieves relevant chunks, dynamically expanding search scope on retries."""
     question = state["question"]
     doc_id = state.get("document_id")
     q_lower = question.lower()
+    retries = state.get("retries", 0)
+
+    # Dynamic limit: expand search space on retry (5 -> 10 -> 15)
+    fetch_limit = 5 + (retries * 5)
 
     # Check if question explicitly targets a known financial section (Metadata filtering)
     known_sections = [
@@ -74,9 +78,8 @@ def retrieve_evidence(state: AgentState) -> dict:
     ]
     matched_section = next((sec for sec in known_sections if sec in q_lower), None)
 
-    # 1. Use filter_documents if a specific section and document_id are targeted
-    if matched_section and doc_id:
-        print(f"[AGENT] retrieve_evidence: Using filter_documents for section '{matched_section}'")
+    # 1. Use filter_documents if a specific section and document_id are targeted (first attempt only)
+    if matched_section and doc_id and retries == 0:
         c_type = "table" if state["question_type"] == "table" else None
         results = filter_documents.invoke({
             "document_id": doc_id,
@@ -84,14 +87,18 @@ def retrieve_evidence(state: AgentState) -> dict:
             "content_type": c_type
         })
         if results and "error" not in results[0]:
-            return {"evidence": results[:5]}
+            return {"evidence": results[:fetch_limit]}
 
-    # 2. Table-specific retrieval
-    if state["question_type"] == "table":
-        results = search_tables.invoke({"query": question, "document_id": doc_id, "limit": 5})
-    # 3. General corpus search
+    # 2. On retry, if table search failed, fallback to general search to explore surrounding narrative text
+    q_type = state["question_type"]
+    if q_type == "table" and retries > 0:
+        q_type = "text"
+
+    # 3. Retrieve chunks with expanded limit
+    if q_type == "table":
+        results = search_tables.invoke({"query": question, "document_id": doc_id, "limit": fetch_limit})
     else:
-        results = search_documents.invoke({"query": question, "document_id": doc_id, "limit": 5})
+        results = search_documents.invoke({"query": question, "document_id": doc_id, "limit": fetch_limit})
 
     return {"evidence": results}
 
@@ -155,6 +162,11 @@ def extract_and_calculate(state: AgentState) -> dict:
     extraction_prompt = f"""You are extracting numeric operands from evidence to build an arithmetic expression.
 Do NOT calculate the result yourself. Only extract the numbers and the operation needed.
 
+Rules:
+- Do NOT use the '%' symbol. Express percentages as decimals or division (e.g. use '/100' or '0.05', never '5%').
+- You must ONLY use numbers explicitly found in the evidence chunks above.
+- You must specify the exact evidence chunk index for every operand.
+
 Question: {question}
 
 Evidence:
@@ -180,24 +192,27 @@ If the evidence does not contain the numbers needed to answer, reply with:
         extraction = {"formula": None, "operand_evidence_indices": []}
 
     formula = extraction.get("formula")
+    used_indices = extraction.get("operand_evidence_indices", [])
 
     if not formula:
         return {"calculation": None}
 
-    # Security check: ensure expression contains only valid mathematical characters
-    if not re.fullmatch(r"[0-9\.\+\-\*\/\(\)\s%]+", formula):
+    # Fix 3: Removed '%' from allowed characters to prevent modulo confusion in numexpr
+    if not re.fullmatch(r"[0-9\.\+\-\*\/\(\)\s]+", formula):
+        return {"calculation": None}
+
+    # Fix 1: Strictly require valid operand citations - never fake citations with evidence[0]
+    if not used_indices:
         return {"calculation": None}
 
     # Execute deterministic calculation tool via Python
     tool_result = calculate.invoke({"expression": formula})
 
-    # Verify tool execution succeeded and returned a valid numeric result
     if not isinstance(tool_result, dict) or not tool_result.get("success"):
         return {"calculation": None}
 
     calc_value = tool_result.get("result")
 
-    used_indices = extraction.get("operand_evidence_indices", [])
     operand_evidence = [
         {
             "document_id": evidence[i].get("metadata", {}).get("document_id"),
@@ -208,13 +223,9 @@ If the evidence does not contain the numbers needed to answer, reply with:
         if i < len(evidence)
     ]
 
-    # Fallback: ensure evidence citation is non-empty to satisfy strict schema validation
-    if not operand_evidence and evidence:
-        operand_evidence = [{
-            "document_id": evidence[0].get("metadata", {}).get("document_id"),
-            "page": evidence[0].get("metadata", {}).get("page_number"),
-            "section": evidence[0].get("metadata", {}).get("section"),
-        }]
+    # If any cited index was out of range or empty, reject rather than fabricate
+    if not operand_evidence:
+        return {"calculation": None}
 
     return {
         "calculation": {
@@ -223,6 +234,7 @@ If the evidence does not contain the numbers needed to answer, reply with:
             "evidence": operand_evidence,
         }
     }
+
 
 
 def route_after_calculation(state: AgentState) -> str:

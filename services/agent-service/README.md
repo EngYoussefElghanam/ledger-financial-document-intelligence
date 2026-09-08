@@ -221,14 +221,28 @@ Tested against complex financial edge cases:
 
 ### 3. Documented Failure Modes & Resolutions
 
-**Numerical Sufficiency False-Negatives:**
-- *Problem*: A generic prompt asking "Does this answer the question?" caused strict models to return `no` on numerical questions because the calculated total was not explicitly printed in the text.
-- *Resolution*: Added an explicit conditional prompt for numerical questions asking if the evidence contains the operands/data needed to calculate the answer.
+Per the project specification, five concrete failure modes were diagnosed, root-caused, and resolved across the reasoning pipeline:
 
-**Provider Rate Limiting (Google AI Free Tier):**
-- *Problem*: Free-tier Gemini models were strictly throttled to 20 requests/day per project, blocking benchmark runs.
-- *Resolution*: Integrated `langchain-groq` using `qwen/qwen3.8-27b` (14,400 requests/day and 1,000 RPM), fulfilling the project's resource-efficient model constraint while eliminating rate bottlenecks.
+1. **Numerical Sufficiency False-Negatives (Reasoning Stage):**
+   - *Root Cause:* A generic prompt asking *"Does this answer the question?"* caused strict models to return `no` on numerical questions because the calculated total was not explicitly printed in the text.
+   - *Resolution:* Implemented a dedicated conditional prompt for `numerical` questions verifying whether the evidence contains the *figures/operands needed to compute* the answer.
 
+2. **Provider Rate Limiting (Model / Infrastructure Stage):**
+   - *Root Cause:* Free-tier Gemini models were strictly throttled to 20 requests/day per project, causing pipeline 429 timeouts during benchmark batches.
+   - *Resolution:* Migrated to `langchain-groq` using `qwen/qwen3.8-27b` (14,400 requests/day and 1,000 RPM), satisfying the resource-efficient LLM constraint while eliminating rate bottlenecks.
+
+3. **Grounding Integrity & Anti-Fake Citation Fallback (Verification Stage):**
+   - *Root Cause:* If the model failed to map formula operands to explicit evidence indices, the logic previously fell back to `evidence[0]` to pass validation, effectively creating an ungrounded/fabricated citation.
+   - *Resolution:* Removed the `evidence[0]` fallback entirely. If operands cannot be verified, the service strictly returns `calculation: None` and routes to `insufficient_evidence`.
+
+4. **Static Retry Ineffectiveness / No-Op Retry (Retrieval & Reasoning Stage):**
+   - *Root Cause:* Retrying with static parameters (`limit=5`, deterministic zero-temperature) retrieved the identical top-5 chunks, causing the second attempt to repeat the exact same failure.
+   - *Resolution:* Implemented dynamic search expansion (`fetch_limit = 5 + (retries * 5)`) and adaptive strategy shifts (switching from table-only search to general document text on retry to explore footnotes and narrative analysis).
+
+5. **Modulo Operator Misinterpretation in Evaluator (Calculation Stage):**
+   - *Root Cause:* Allowing the `%` symbol in formula extraction caused `numexpr` to interpret `%` as the modulo operator rather than a percentage, corrupting mathematical calculations.
+   - *Resolution:* Disallowed `%` from the arithmetic regex and updated prompts to enforce explicit mathematical representations (e.g. `/ 100` or decimals).
+   
 ---
 
 ## 7. Observability & Tracing (LangSmith)
