@@ -119,8 +119,7 @@ def get_document(document_id: str) -> ProcessedDocument:
 
 @app.get("/documents")
 def list_documents() -> dict:
-    """Lists all currently-indexed document ids - useful for the UI's
-    dashboard view and for sanity-checking a batch run's coverage."""
+    """Lists persisted processed ids; only retrieval confirms indexing."""
     ids = [p.stem for p in PROCESSED_DIR.glob("*.json")]
     return {"count": len(ids), "document_ids": sorted(ids)}
 

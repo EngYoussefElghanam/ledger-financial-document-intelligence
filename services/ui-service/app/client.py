@@ -4,16 +4,34 @@ Thin HTTP client to orchestrator-api.
 E6 owns this file. The UI should never call retrieval-api, agent-service,
 or answer-validator-api directly — everything goes through the orchestrator.
 
-Set USE_MOCK=True while E4's orchestrator-api isn't ready yet, so you can
-build and demo the Gradio UI in isolation. Flip it to False once /ask is live.
+USE_MOCK is an explicit UI-only demo mode. The default calls the orchestrator.
 """
 
 import os
 import random
+from pathlib import Path
 import requests
 
+ROOT_DIR = Path(__file__).resolve().parents[3]
+ENV_PATH = ROOT_DIR / ".env"
+if ENV_PATH.exists():
+    for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8000")
-USE_MOCK = os.getenv("USE_MOCK", "true").lower() == "true"
+USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
+
+
+def runtime_status() -> dict:
+    return {
+        "mode": "MOCK" if USE_MOCK else "LIVE",
+        "mock": USE_MOCK,
+        "orchestrator_url": ORCHESTRATOR_URL,
+    }
 
 
 # --- Mock responses, one per schema type, so you can exercise every render path ---

@@ -4,6 +4,9 @@ from theme import theme, CUSTOM_CSS
 from components.chat_tab import build_chat_tab
 from components.dashboard_tab import build_dashboard_tab
 from components.documents_tab import build_documents_tab
+from client import runtime_status
+
+status = runtime_status()
 
 with gr.Blocks(title="LEDGER") as demo:
     gr.HTML(
@@ -14,6 +17,13 @@ with gr.Blocks(title="LEDGER") as demo:
         </div>
         """
     )
+    if status["mock"]:
+        gr.Markdown(
+            "**MOCK MODE** - answers and document data are canned and do not "
+            "use the validation or retrieval pipeline."
+        )
+    else:
+        gr.Markdown(f"**LIVE MODE** - connected to `{status['orchestrator_url']}`")
 
     with gr.Tab("Chat"):
         build_chat_tab()
