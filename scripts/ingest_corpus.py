@@ -46,6 +46,7 @@ def main() -> int:
                 with pdf.open("rb") as stream:
                     response = httpx.post(
                         f"{args.orchestrator_url}/documents/ingest",
+                        params={"dataset_id": pdf.stem},
                         files={"file": (pdf.name, stream, "application/pdf")},
                         timeout=600,
                     )

@@ -13,6 +13,10 @@ app = FastAPI(title="Retrieval API", description="An API that retrievs the relev
 # Setup database on startup
 init_db()
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 @app.post("/ingest")
 async def ingest_document(doc: ProcessedDocument):
     try:

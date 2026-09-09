@@ -1,0 +1,126 @@
+name: ledger
+
+x-core: &core
+  image: ledger-core:local
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: core
+
+x-api-health: &api-health
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+services:
+  doc-processor-api:
+    image: ledger-ml:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ml
+    working_dir: /workspace/services/doc-processor-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports: ["127.0.0.1:8001:8001"]
+    environment:
+      HF_HOME: /models/huggingface
+      XDG_CACHE_HOME: /models
+    volumes:
+      - processor-data:/workspace/services/doc-processor-api/data
+      - model-cache:/models
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+
+  retrieval-api:
+    image: ledger-ml:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ml
+    working_dir: /workspace/services/retrieval-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002
+    ports: ["127.0.0.1:8002:8002"]
+    environment:
+      HF_HOME: /models/huggingface
+      XDG_CACHE_HOME: /models
+      FASTEMBED_CACHE_PATH: /models/fastembed
+    volumes:
+      - retrieval-data:/workspace/services/retrieval-api/qdrant_data
+      - model-cache:/models
+    healthcheck:
+      <<: *api-health
+      start_period: 600s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+
+  agent-service:
+    image: ledger-agent:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: agent
+    working_dir: /workspace/services/agent-service
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003
+    ports: ["127.0.0.1:8003:8003"]
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      RETRIEVAL_API_URL: http://retrieval-api:8002
+    depends_on:
+      retrieval-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+
+  answer-validator-api:
+    <<: *core
+    working_dir: /workspace/services/answer-validator-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004
+    ports: ["127.0.0.1:8004:8004"]
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+
+  orchestrator-api:
+    <<: *core
+    working_dir: /workspace/services/orchestrator-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      USE_MOCK_AGENT: "false"
+      DOC_PROCESSOR_URL: http://doc-processor-api:8001
+      RETRIEVAL_URL: http://retrieval-api:8002
+      AGENT_SERVICE_URL: http://agent-service:8003
+      ANSWER_VALIDATOR_URL: http://answer-validator-api:8004
+      CORPUS_MANIFEST_PATH: /workspace/data/corpus-manifest.json
+    volumes:
+      - corpus-data:/workspace/data
+    depends_on:
+      answer-validator-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+
+  ui-service:
+    <<: *core
+    working_dir: /workspace/services/ui-service
+    command: python app/main.py
+    ports: ["127.0.0.1:7860:7860"]
+    environment:
+      USE_MOCK: "false"
+      ORCHESTRATOR_URL: http://orchestrator-api:8000
+      GRADIO_ANALYTICS_ENABLED: "False"
+    depends_on:
+      orchestrator-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/')"]
+
+volumes:
+  processor-data:
+  retrieval-data:
+  corpus-data:
+  model-cache:
