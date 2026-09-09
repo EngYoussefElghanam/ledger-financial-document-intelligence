@@ -140,19 +140,19 @@ def process_pdf(pdf_path: str, document_id: Optional[str] = None) -> ProcessedDo
             )
             pages_blocks.setdefault(page_no, []).append(block)
 
-    page_numbers = sorted(set(pages_blocks) | set(pages_tables))
+    total_pages = doc.num_pages()
     pages = [
         Page(
             page_number=pn,
             blocks=pages_blocks.get(pn, []),
             tables=pages_tables.get(pn, []),
         )
-        for pn in page_numbers
+        for pn in range(1, total_pages + 1)
     ]
 
     return ProcessedDocument(
         document_id=doc_id,
         source_filename=path.name,
-        page_count=doc.num_pages(),
+        page_count=total_pages,
         pages=pages,
     )
