@@ -1,10 +1,11 @@
 import os
 import json
-import httpx  # or import requests
+import httpx
+from pathlib import Path
 
-# Make sure this matches your running FastAPI port
-API_URL = "http://localhost:8000/ingest" 
-FOLDER_PATH = "./data/processed" # The folder where you unzipped the JSONs
+
+API_URL = "http://localhost:8002/ingest" 
+FOLDER_PATH = Path.cwd() / "data" / "processed"
 
 def index_all_files():
     # Loop through every file in the folder
