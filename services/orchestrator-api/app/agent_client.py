@@ -1,24 +1,18 @@
 """
 Client for agent-service (the LangGraph reasoning "brain").
 
-agent-service doesn't exist yet, so USE_MOCK_AGENT
-lets orchestrator-api be built and tested end-to-end without being
-blocked. Flip it to false once a real agent-service is running -
-the real-call code path is already written and ready to go.
+USE_MOCK_AGENT lets orchestrator-api be tested without a running
+agent-service, flip it to false once agent-service is available.
 """
 
 import os
 import random
 
-import httpx
-
 from app.config import AGENT_SERVICE_URL
+from app.http_client import get_client
 
 USE_MOCK_AGENT = os.getenv("USE_MOCK_AGENT", "true").lower() == "true"
 
-# One mock per answer_type, so /ask exercises every downstream path
-# (including a deliberately invalid one, to prove the validator actually
-# rejects bad input rather than rubber-stamping everything).
 _MOCK_ANSWERS = [
     {
         "answer_type": "direct",
@@ -45,11 +39,11 @@ async def ask_agent(question: str, document_id: str | None = None) -> dict:
     if USE_MOCK_AGENT:
         return random.choice(_MOCK_ANSWERS)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{AGENT_SERVICE_URL}/answer",
-            json={"question": question, "document_id": document_id},
-            timeout=60,  # agent calls an LLM - give it real room to think
-        )
-        resp.raise_for_status()
-        return resp.json()
+    client = get_client()
+    resp = await client.post(
+        f"{AGENT_SERVICE_URL}/answer",
+        json={"question": question, "document_id": document_id},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
