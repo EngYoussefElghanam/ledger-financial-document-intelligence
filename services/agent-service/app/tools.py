@@ -99,41 +99,34 @@ def search_tables(query: str, document_id: Optional[str] = None, limit: int = 5)
 
 
 @tool
-def filter_documents(document_id: Optional[str] = None, section: Optional[str] = None, content_type: Optional[str] = None) -> list:
+def filter_documents(document_id: str, content_type: Optional[str] = None, section: Optional[str] = None, limit: int = 50) -> list:
     """
-    Filter and list indexed document chunks by metadata, without a search query.
-    Use this when the question is about a specific document, section, or
-    content type (e.g. "show me all tables in document X") rather than a
-    semantic search.
+    Retrieve document chunks based on exact metadata matches without vector search.
+    Calls the dedicated non-vector POST /filter endpoint on retrieval-api.
 
     Args:
-        document_id: Optional - restrict to one specific document.
-        section: Optional - restrict to a specific section name.
-        content_type: Optional - "text" or "table".
+        document_id: The exact ID of the target document (Required).
+        content_type: Optional - filter by "table" or "text".
+        section: Optional - filter by section title.
+        limit: Max chunks to return (default 50).
     """
-    payload = {
-        "query": section or "financial data",
-        "limit": 20,
-        "section": section,
-        "content_type": content_type,
-        "rerank": reranker_enabled(),
-        "include_diagnostics": True,
-    }
-    if document_id:
-        payload["document_id"] = document_id
+    payload = {"document_id": document_id, "limit": limit}
+    if content_type:
+        payload["type"] = content_type
+    if section:
+        payload["section"] = section
 
     try:
         response = httpx.post(
-            f"{RETRIEVAL_API_URL}/search",
+            f"{RETRIEVAL_API_URL}/filter",
             json=payload,
             headers=outbound_trace_headers(),
             timeout=30,
         )
         response.raise_for_status()
         body = response.json()
-        record_retrieval(payload, body)
-        results = body["results"]
+        results = body.get("results", [])
+        record_retrieval(payload, {"results": results})
+        return results
     except Exception as e:
-        raise RuntimeError("retrieval-api request failed") from e
-
-    return results
+        raise RuntimeError("retrieval-api filter request failed") from e
