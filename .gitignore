@@ -1,15 +1,3 @@
-.env
-__pycache__
-data
-*.pyc
-*.egg-info/
-.DS_Store
-batch_eval_report.json
-data/processed/
-data/uploads/
-venv*/
-.venv/
-.vscode/
 .env.DS_Store
 **/.DS_Store
 __pycache__/
@@ -19,5 +7,4 @@ data/
 *.zip
 batch_eval_report.json
 tests/fixtures/*.pdf
-.vscode/
-qdrant_data/
+venv/
