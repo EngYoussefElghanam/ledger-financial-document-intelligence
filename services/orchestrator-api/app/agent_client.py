@@ -1,6 +1,7 @@
 """HTTP client for the live agent /ask contract."""
 import httpx
 from app.config import AGENT_SERVICE_URL, USE_MOCK_AGENT
+from app.http_client import get_client
 
 
 class AgentDependencyError(RuntimeError):
@@ -25,24 +26,23 @@ async def ask_agent(
         }
         return {"answer": answer, "diagnostics": {"mock": True}} if include_diagnostics else answer
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{AGENT_SERVICE_URL}/ask",
-                json={
-                    "question": question,
-                    "document_id": document_id,
-                    "include_diagnostics": include_diagnostics,
-                    "evaluation_variant": evaluation_variant,
-                    "request_id": request_id,
-                    "trace_id": trace_id,
-                    "parent_span_id": parent_span_id,
-                },
-                timeout=60,
-            )
-            response.raise_for_status()
-            answer = response.json()
-            if not isinstance(answer, dict):
-                raise ValueError("agent returned a non-object answer")
-            return answer
+        response = await get_client().post(
+            f"{AGENT_SERVICE_URL}/ask",
+            json={
+                "question": question,
+                "document_id": document_id,
+                "include_diagnostics": include_diagnostics,
+                "evaluation_variant": evaluation_variant,
+                "request_id": request_id,
+                "trace_id": trace_id,
+                "parent_span_id": parent_span_id,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        answer = response.json()
+        if not isinstance(answer, dict):
+            raise ValueError("agent returned a non-object answer")
+        return answer
     except (httpx.HTTPError, ValueError) as exc:
         raise AgentDependencyError("agent-service request failed") from exc

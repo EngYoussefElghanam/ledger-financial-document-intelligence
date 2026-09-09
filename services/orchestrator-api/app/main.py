@@ -1,25 +1,42 @@
 import hashlib
 import re
 import uuid
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, HTTPException, Response, UploadFile
-
-from app.config import DOC_PROCESSOR_URL, RETRIEVAL_URL, USE_MOCK_AGENT, AGENT_SERVICE_URL, ANSWER_VALIDATOR_URL
-
-import time
-from datetime import datetime, timezone
-
 from pydantic import BaseModel
 
 from app.agent_client import AgentDependencyError, ask_agent
+from app.config import (
+    AGENT_SERVICE_URL,
+    ANSWER_VALIDATOR_URL,
+    DOC_PROCESSOR_URL,
+    RETRIEVAL_URL,
+    USE_MOCK_AGENT,
+)
 from app.corpus_manifest import get_document as get_manifest_document
 from app.corpus_manifest import list_documents as list_manifest_documents
 from app.corpus_manifest import update_document
+from app.http_client import get_client, set_client
 from app.validator_client import validate
 from ledger_observability import observation
+from schemas.answer import Answer
 
-app = FastAPI(title="orchestrator-api")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    client = httpx.AsyncClient()
+    set_client(client)
+    yield
+    await client.aclose()
+
+
+app = FastAPI(title="orchestrator-api", lifespan=lifespan)
+
+_recent_queries: list[dict] = []
 
 
 @app.get("/health")
@@ -30,15 +47,15 @@ def health() -> dict:
 @app.get("/ready")
 async def readiness() -> dict:
     dependencies = {}
-    async with httpx.AsyncClient(timeout=5) as client:
-        for name, url in {"agent": AGENT_SERVICE_URL, "retrieval": RETRIEVAL_URL,
-                          "validator": ANSWER_VALIDATOR_URL}.items():
-            try:
-                result = await client.get(f"{url}/health")
-                result.raise_for_status()
-                dependencies[name] = result.json().get("status") == "ok"
-            except (httpx.HTTPError, ValueError):
-                dependencies[name] = False
+    client = get_client()
+    for name, url in {"agent": AGENT_SERVICE_URL, "retrieval": RETRIEVAL_URL,
+                      "validator": ANSWER_VALIDATOR_URL}.items():
+        try:
+            result = await client.get(f"{url}/health", timeout=5)
+            result.raise_for_status()
+            dependencies[name] = result.json().get("status") == "ok"
+        except (httpx.HTTPError, ValueError):
+            dependencies[name] = False
     return {"ready": all(dependencies.values()) and not USE_MOCK_AGENT,
             "mock_agent": USE_MOCK_AGENT, "dependencies": dependencies}
 
@@ -93,29 +110,29 @@ async def ingest_document(file: UploadFile, dataset_id: str | None = None) -> di
     )
 
     try:
-        async with httpx.AsyncClient() as client:
-            processed_response = await client.post(
-                f"{DOC_PROCESSOR_URL}/process",
-                params={"document_id": document_id},
-                files={"file": (filename, content, "application/pdf")},
-                timeout=900,
-            )
-            processed_response.raise_for_status()
-            processed = processed_response.json()
-            record = update_document(
-                document_id,
-                status="processed",
-                processed_at=datetime.now(timezone.utc).isoformat(),
-                page_count=processed.get("page_count"),
-            )
-            ingestion = await _index_processed_document(client, processed)
-            record = update_document(
-                document_id,
-                status="indexed",
-                indexed_at=datetime.now(timezone.utc).isoformat(),
-                total_chunks=ingestion.get("total_chunks", 0),
-            )
-            return record
+        client = get_client()
+        processed_response = await client.post(
+            f"{DOC_PROCESSOR_URL}/process",
+            params={"document_id": document_id},
+            files={"file": (filename, content, "application/pdf")},
+            timeout=900,
+        )
+        processed_response.raise_for_status()
+        processed = processed_response.json()
+        record = update_document(
+            document_id,
+            status="processed",
+            processed_at=datetime.now(timezone.utc).isoformat(),
+            page_count=processed.get("page_count"),
+        )
+        ingestion = await _index_processed_document(client, processed)
+        record = update_document(
+            document_id,
+            status="indexed",
+            indexed_at=datetime.now(timezone.utc).isoformat(),
+            total_chunks=ingestion.get("total_chunks", 0),
+        )
+        return record
     except Exception as exc:
         stage = "retrieval" if record.get("status") == "processed" else "processor"
         update_document(
@@ -140,12 +157,12 @@ async def resume_ingestion(document_id: str) -> dict:
         raise HTTPException(status_code=409, detail="Document must be uploaded again; processing did not complete")
 
     try:
-        async with httpx.AsyncClient() as client:
-            processed_response = await client.get(
-                f"{DOC_PROCESSOR_URL}/documents/{document_id}", timeout=30
-            )
-            processed_response.raise_for_status()
-            ingestion = await _index_processed_document(client, processed_response.json())
+        client = get_client()
+        processed_response = await client.get(
+            f"{DOC_PROCESSOR_URL}/documents/{document_id}", timeout=30
+        )
+        processed_response.raise_for_status()
+        ingestion = await _index_processed_document(client, processed_response.json())
         return update_document(
             document_id,
             status="indexed",
@@ -181,15 +198,19 @@ def ingestion_status() -> dict:
 @app.get("/documents")
 async def list_documents() -> list[dict]:
     indexed = list_manifest_documents(status="indexed")
-    async with httpx.AsyncClient() as client:
-        documents = []
-        for record in indexed:
-            doc_id = record["document_id"]
+    client = get_client()
+    documents = []
+    for record in indexed:
+        doc_id = record["document_id"]
+        try:
             detail_resp = await client.get(f"{DOC_PROCESSOR_URL}/documents/{doc_id}", timeout=30)
             detail_resp.raise_for_status()
-            documents.append(_to_ui_summary(detail_resp.json(), record))
+        except httpx.HTTPError as e:
+            print(f"[orchestrator] Skipping document '{doc_id}': {e}")
+            continue
+        documents.append(_to_ui_summary(detail_resp.json(), record))
 
-        return documents
+    return documents
 
 
 @app.get("/documents/{document_id}")
@@ -197,12 +218,11 @@ async def get_document(document_id: str) -> dict:
     record = get_manifest_document(document_id)
     if not record or record.get("status") != "indexed":
         raise HTTPException(status_code=404, detail=f"No indexed document '{document_id}'")
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{DOC_PROCESSOR_URL}/documents/{document_id}", timeout=30)
-        if resp.status_code == 404:
-            raise HTTPException(status_code=404, detail=f"No document '{document_id}'")
-        resp.raise_for_status()
-        return _to_ui_summary(resp.json(), record)
+    resp = await get_client().get(f"{DOC_PROCESSOR_URL}/documents/{document_id}", timeout=30)
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"No document '{document_id}'")
+    resp.raise_for_status()
+    return _to_ui_summary(resp.json(), record)
 
 
 def _to_ui_summary(processed_document: dict, record: dict | None = None) -> dict:
@@ -219,10 +239,8 @@ def _to_ui_summary(processed_document: dict, record: dict | None = None) -> dict
     }
 
 
-# In-memory log of recent questions, for the /dashboard endpoint.
-# Resets on every server restart which is fine for a demo, not meant to be
-# durable storage (that's arguably eval-service's job long-term).
-_recent_queries: list[dict] = []
+def _insufficient_evidence(reason: str) -> dict:
+    return {"answer_type": "insufficient_evidence", "evidence": [], "params": {"reason": reason}}
 
 
 class AskRequest(BaseModel):
@@ -235,7 +253,12 @@ class AskRequest(BaseModel):
     parent_span_id: str | None = None
 
 
-@app.post("/ask")
+class AskDiagnosticResponse(BaseModel):
+    answer: Answer
+    diagnostics: dict
+
+
+@app.post("/ask", response_model=Answer | AskDiagnosticResponse)
 async def ask(request: AskRequest, response: Response) -> dict:
     start = time.perf_counter()
     if request.evaluation_variant not in {"reranker_on", "reranker_off"}:
@@ -244,6 +267,8 @@ async def ask(request: AskRequest, response: Response) -> dict:
     trace_id = request.trace_id or hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:32]
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Langfuse-Trace-ID"] = trace_id
+    agent_diagnostics = {}
+    validation = {"valid": False, "reason": "validation was not completed"}
 
     try:
         with observation(
@@ -269,10 +294,7 @@ async def ask(request: AskRequest, response: Response) -> dict:
                 candidate_answer = agent_result
                 agent_diagnostics = {}
             if not isinstance(candidate_answer, dict):
-                raise HTTPException(
-                    status_code=502,
-                    detail="agent-service returned an invalid answer",
-                )
+                raise ValueError("agent-service returned an invalid answer")
             validation = await validate(
                 candidate_answer,
                 trace_id=trace_id,
@@ -308,10 +330,10 @@ async def ask(request: AskRequest, response: Response) -> dict:
                     "validation_valid": validation.get("valid"),
                 }
             )
-    except AgentDependencyError as exc:
-        raise HTTPException(status_code=502, detail="agent-service dependency failed") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="validator dependency failed") from exc
+    except (AgentDependencyError, httpx.HTTPError, ValueError, KeyError) as exc:
+        reason = f"Downstream service error: {type(exc).__name__}"
+        final_answer = _insufficient_evidence(reason)
+        validation = {"valid": False, "reason": reason}
 
     latency_ms = round((time.perf_counter() - start) * 1000)
     _recent_queries.append({
@@ -337,9 +359,9 @@ async def ask(request: AskRequest, response: Response) -> dict:
 
 @app.get("/dashboard")
 async def dashboard() -> dict:
-    documents = await list_documents()  # reuses the endpoint function you already wrote
+    documents = await list_documents()
     return {
         "num_documents": len(documents),
         "documents": documents,
-        "recent_queries": _recent_queries[-10:],  # last 10 only, keep it small
+        "recent_queries": _recent_queries[-10:],
     }
