@@ -32,6 +32,7 @@ def health() -> dict:
 
 
 @app.post("/ask", response_model=AskResponse)
+@app.post("/answer", response_model=AskResponse)
 def ask(request: AskRequest):
     """
     Main entrypoint: accepts a question (and optional document_id),

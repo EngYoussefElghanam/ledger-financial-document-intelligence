@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from typing import Optional
 
 
-RETRIEVAL_API_URL = os.getenv("RETRIEVAL_API_URL", "http://localhost:8000")
+RETRIEVAL_API_URL = os.getenv("RETRIEVAL_API_URL", "http://localhost:8002")
 
 
 @tool
