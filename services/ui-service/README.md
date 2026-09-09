@@ -78,14 +78,34 @@ The service holds no data of its own; everything is fetched from
 
 | Variable | Purpose |
 |---|---|
-| `ORCHESTRATOR_URL` | Base URL of `orchestrator-api` |
-| `USE_MOCK` | `true` = serve built-in mock responses, no orchestrator needed. `false` = call the real API |
+| `ORCHESTRATOR_URL` | Base URL of `orchestrator-api` (port `8006` — moved from `8000` after a collision with `retrieval-api`, see PR #14) |
+| `USE_MOCK` | `true` = serve built-in mock responses, no orchestrator needed. `false` (default) = call the real API |
+| `PDF_BASE_URL` | Optional. When set, evidence citations become clickable links that open the source PDF at the cited page (`{PDF_BASE_URL}/{document_id}.pdf#page={page}`). Left empty, evidence stays plain text — no code change needed either way. |
 
-The service currently runs entirely on **mocked** responses
-(`USE_MOCK=true`) since `orchestrator-api`'s `/ask`, `/dashboard`, and
-`/documents` endpoints aren't live yet. Switch `USE_MOCK=false` once they
-are, and confirm the real response shape matches the schema above.
+`orchestrator-api`'s `/ask`, `/dashboard`, and `/documents` are live and
+tested (PR #10) — `USE_MOCK=false` is now the default. Its response
+shapes were checked directly against this service's client code:
+`/documents` already returns exactly `{document_id, name, pages,
+tables_detected, structured_values}`, and `/dashboard`'s `recent_queries`
+already include `timestamp`.
 
-We should add real error handling for a down/slow orchestrator, and a way
-to open the cited PDF page directly from an evidence citation, before
-relying on this in the final demo.
+`client.py` raises a single `OrchestratorError` for every failure mode
+(connection refused, timeout, non-2xx status, malformed JSON) — every
+page catches it and shows a clear message instead of crashing. Verified
+against a live connection-refused case, a real HTTP 500, and a real
+timeout.
+
+`/dashboard` and `/documents` proxy through `doc-processor-api` one
+document at a time (not parallelized yet, per orchestrator-api's own
+code comments) — slow against the full 2,758-document corpus. Both tabs
+show a "Loading…" state and use a generous timeout rather than failing
+on a large corpus.
+
+Known gap carried over from `orchestrator-api`: `structured_values` in
+`/documents` is currently always empty — nothing in the pipeline
+extracts named financial figures yet (open question for the team, per
+Shams's PR notes).
+
+Still to add if there's time before the demo:
+- Tests
+- Parallelizing `/documents` fetches (that's orchestrator-api's fix to make, not this service's)

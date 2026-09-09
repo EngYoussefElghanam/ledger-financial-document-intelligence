@@ -4,19 +4,97 @@ Thin HTTP client to orchestrator-api.
 E6 owns this file. The UI should never call retrieval-api, agent-service,
 or answer-validator-api directly — everything goes through the orchestrator.
 
-Set USE_MOCK=True while E4's orchestrator-api isn't ready yet, so you can
-build and demo the Gradio UI in isolation. Flip it to False once /ask is live.
+USE_MOCK=true falls back to canned responses (for local UI dev without
+orchestrator-api running). Default is false now that orchestrator-api
+(port 8006) is live and tested.
 """
 
 import os
 import random
 import requests
 
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8000")
-USE_MOCK = os.getenv("USE_MOCK", "true").lower() == "true"
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8006")
+USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
 
 
-# --- Mock responses, one per schema type, so you can exercise every render path ---
+class OrchestratorError(Exception):
+    """Raised for any failure talking to orchestrator-api — connection
+    refused, timeout, bad status code, or a response that doesn't match
+    the expected shape. Callers catch this and show a clean message
+    instead of letting a raw exception hit the Gradio UI."""
+
+
+def _get(path: str, timeout: int) -> dict | list:
+    try:
+        resp = requests.get(f"{ORCHESTRATOR_URL}{path}", timeout=timeout)
+    except requests.exceptions.ConnectionError as e:
+        raise OrchestratorError(
+            f"Can't reach orchestrator-api at {ORCHESTRATOR_URL}. "
+            f"Is it running? ({e})"
+        ) from e
+    except requests.exceptions.Timeout as e:
+        raise OrchestratorError(
+            f"orchestrator-api didn't respond within {timeout}s "
+            f"(request to {path})."
+        ) from e
+
+    if not resp.ok:
+        raise OrchestratorError(
+            f"orchestrator-api returned {resp.status_code} for {path}: "
+            f"{resp.text[:200]}"
+        )
+
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise OrchestratorError(
+            f"orchestrator-api returned non-JSON for {path}."
+        ) from e
+
+
+def _post(path: str, payload: dict, timeout: int) -> dict:
+    try:
+        resp = requests.post(f"{ORCHESTRATOR_URL}{path}", json=payload, timeout=timeout)
+    except requests.exceptions.ConnectionError as e:
+        raise OrchestratorError(
+            f"Can't reach orchestrator-api at {ORCHESTRATOR_URL}. "
+            f"Is it running? ({e})"
+        ) from e
+    except requests.exceptions.Timeout as e:
+        raise OrchestratorError(
+            f"orchestrator-api didn't respond within {timeout}s "
+            f"(request to {path}). It may be waiting on agent-service, "
+            f"which calls an LLM and can be slow."
+        ) from e
+
+    if not resp.ok:
+        raise OrchestratorError(
+            f"orchestrator-api returned {resp.status_code} for {path}: "
+            f"{resp.text[:200]}"
+        )
+
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise OrchestratorError(
+            f"orchestrator-api returned non-JSON for {path}."
+        ) from e
+
+
+def _validate_answer_shape(data: dict) -> dict:
+    """orchestrator-api's /ask always returns one of the 4 known
+    answer_type schemas (it substitutes insufficient_evidence itself if
+    agent's answer fails validation) — but we still guard here in case a
+    future contract change slips through, rather than letting
+    format_answer.py fail on an unexpected shape."""
+    if not isinstance(data, dict) or "answer_type" not in data:
+        raise OrchestratorError(
+            f"orchestrator-api's /ask response is missing 'answer_type': {data}"
+        )
+    return data
+
+
+# --- Mock responses, one per schema type, used only when USE_MOCK=true ---
 _MOCK_RESPONSES = [
     {
         "answer_type": "direct",
@@ -53,7 +131,9 @@ def ask_question(question: str, document_id: str | None = None) -> dict:
     Send a question to the orchestrator and return the schema-compliant
     answer dict: {answer_type, evidence, params}.
 
-    Raises requests.HTTPError on non-2xx responses when not mocking.
+    Raises OrchestratorError on any failure (connection, timeout, bad
+    status, malformed response) — callers should catch this, never
+    requests.RequestException directly.
     """
     if USE_MOCK:
         return random.choice(_MOCK_RESPONSES)
@@ -62,17 +142,22 @@ def ask_question(question: str, document_id: str | None = None) -> dict:
     if document_id:
         payload["document_id"] = document_id
 
-    resp = requests.post(f"{ORCHESTRATOR_URL}/ask", json=payload, timeout=60)
-    resp.raise_for_status()
-    return resp.json()
+    # 60s: agent-service calls an LLM, per its own timeout budget
+    data = _post("/ask", payload, timeout=60)
+    return _validate_answer_shape(data)
 
 
 def get_dashboard_data() -> dict:
     """
     Pulls corpus-level stats for the Dashboard tab:
-    indexed doc count, doc list, detected tables, recent queries + latency.
+    indexed doc count, doc list, recent queries + latency + timestamp.
 
-    Mocked until orchestrator-api (or eval-service) exposes a real endpoint.
+    Note: orchestrator-api's /dashboard internally calls /documents,
+    which fetches every document one-by-one from doc-processor-api
+    (2,758 documents in the full corpus as of doc-processor-api's
+    latest update) — this call can be slow. Give it a generous timeout
+    and show a loading state in the UI rather than a short timeout that
+    fails on a corpus this size.
     """
     if USE_MOCK:
         return {
@@ -87,18 +172,16 @@ def get_dashboard_data() -> dict:
             ],
         }
 
-    resp = requests.get(f"{ORCHESTRATOR_URL}/dashboard", timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _get("/dashboard", timeout=120)
 
 
 def get_documents() -> list[dict]:
     """
-    Pulls the full indexed document list for the Documents tab:
-    per-document id, name, page count, detected tables, and any
-    extracted structured values (from doc-processor-api's output).
+    Pulls the full indexed document list for the Documents tab.
 
-    Mocked until orchestrator-api exposes a real /documents endpoint.
+    Same slow-endpoint caveat as get_dashboard_data(): orchestrator-api
+    fetches each document individually from doc-processor-api, so this
+    can take a while against the full corpus.
     """
     if USE_MOCK:
         return [
@@ -125,17 +208,13 @@ def get_documents() -> list[dict]:
             },
         ]
 
-    resp = requests.get(f"{ORCHESTRATOR_URL}/documents", timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _get("/documents", timeout=120)
 
 
 def get_document_detail(document_id: str) -> dict:
     """
     Pulls full detail for a single document — used when the user selects
     a row in the Documents tab table to inspect its extracted content.
-
-    Mocked until orchestrator-api exposes a real endpoint.
     """
     if USE_MOCK:
         docs = {d["document_id"]: d for d in get_documents()}
@@ -144,6 +223,4 @@ def get_document_detail(document_id: str) -> dict:
             return {"error": f"No document found for id '{document_id}'"}
         return doc
 
-    resp = requests.get(f"{ORCHESTRATOR_URL}/documents/{document_id}", timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    return _get(f"/documents/{document_id}", timeout=30)
