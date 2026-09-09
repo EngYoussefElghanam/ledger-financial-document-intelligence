@@ -2,6 +2,7 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from schemas.document import ProcessedDocument
 from schemas.search_request import SearchRequest
+from schemas.search_filter_request import SearchFilterRequest
 from qdrant_client import models
 
 from app.chunker import create_chunks
@@ -162,5 +163,77 @@ async def search_documents(request: SearchRequest):
 
         return {"results": formatted_results}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/filter")
+async def filter_docs(request: SearchFilterRequest):
+    """
+    Retrieves document chunks based on exact metadata matches without performing vector search.
+
+    This endpoint utilizes Qdrant's scroll API to filter records by document_id, 
+    and optionally by content type and section. It is designed for deterministic 
+    data retrieval rather than semantic similarity matching.
+
+    Args:
+    request (SearchFilterRequest): The filtering criteria containing the mandatory 
+                                    document_id, and optional type, section, and limit.
+
+    Returns:
+    dict: A dictionary containing:
+        - results (list): A formatted list of matching chunks with their text and metadata.
+    """
+    try:
+        # Build the exact-match conditions
+        must_conditions = [
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchValue(value=request.document_id)
+            )
+        ]
+
+        if request.type:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="type",
+                    match=models.MatchValue(value=request.type)
+                )
+            )
+
+        if request.section:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="section",
+                    match=models.MatchValue(value=request.section)
+                )
+            )
+
+        # Use Qdrant's scroll API instead of search
+        # Scroll is designed specifically for metadata filtering without vectors
+        records, next_page_offset = qdrant_client.scroll(
+            collection_name="financials",
+            scroll_filter=models.Filter(must=must_conditions),
+            limit=request.limit,
+            with_payload=True,
+            with_vectors=False # Saves bandwidth by not returning the 384-dimensional arrays
+        )
+
+        formatted_results = []
+        for record in records:
+            formatted_results.append({
+                "text": record.payload.get("text"),
+                "metadata": {
+                    "document_id": record.payload.get("document_id"),
+                    "page_number": record.payload.get("page_number"),
+                    "section": record.payload.get("section"),
+                    "type": record.payload.get("type")
+                }
+            })
+
+        # Returns a dict, cause it can be useful to add more keys to it in the future
+        return {
+            "results": formatted_results,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -5,11 +5,18 @@ This file's only job is: accept HTTP requests, call process_pdf(),
 persist results, and hand back JSON. No docling-specific logic here.
 """
 
-import shutil
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 
+from app.file_safety import (
+    looks_like_pdf,
+    resolve_within,
+    safe_upload_filename,
+    sanitize_document_id,
+    unique_variant,
+)
 from app.processor import process_pdf
 from schemas import ProcessedDocument
 
@@ -45,11 +52,37 @@ def process_document(file: UploadFile, document_id: str | None = None) -> Proces
     if file.content_type != "application/pdf" and not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
-    # Save the upload to disk first - docling's converter takes a path,
-    # not an in-memory stream, so this is a real step, not boilerplate.
-    upload_path = UPLOADS_DIR / file.filename
-    with upload_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    if document_id is not None:
+        try:
+            document_id = sanitize_document_id(document_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    content = file.file.read()
+
+    # Check real magic bytes rather than trusting the client's declared
+    # content_type or filename extension - both are attacker-controlled.
+    if not looks_like_pdf(content):
+        raise HTTPException(status_code=400, detail="File content is not a valid PDF")
+
+    try:
+        safe_name = safe_upload_filename(file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Don't silently overwrite a previous upload with the same name.
+    safe_name = unique_variant(UPLOADS_DIR, safe_name)
+
+    try:
+        upload_path = resolve_within(UPLOADS_DIR, safe_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Atomic write: write to a temp file first, then rename into place,
+    # so a crash mid-write never leaves a half-written PDF on disk.
+    tmp_path = upload_path.with_suffix(upload_path.suffix + ".tmp")
+    tmp_path.write_bytes(content)
+    os.replace(tmp_path, upload_path)
 
     try:
         result = process_pdf(str(upload_path), document_id=document_id)
@@ -111,7 +144,12 @@ def get_document(document_id: str) -> ProcessedDocument:
     to fetch a specific document's structured content without paying the
     docling processing cost again.
     """
-    path = PROCESSED_DIR / f"{document_id}.json"
+    try:
+        document_id = sanitize_document_id(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document_id")
+
+    path = resolve_within(PROCESSED_DIR, f"{document_id}.json")
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No processed document '{document_id}'")
     return ProcessedDocument.model_validate_json(path.read_text())
@@ -128,6 +166,17 @@ def list_documents() -> dict:
 def _persist(result: ProcessedDocument) -> None:
     """Writes a ProcessedDocument to data/processed/{document_id}.json.
     Centralized here so /process and /process_batch persist identically -
-    one place to change the storage format or location later."""
+    one place to change the storage format or location later.
+
+    document_id here comes from process_pdf() (either the caller's
+    sanitized value or a filename-stem default), so it's already safe by
+    the time it reaches this function - no re-validation needed.
+    """
     path = PROCESSED_DIR / f"{result.document_id}.json"
-    path.write_text(result.model_dump_json(indent=2))
+
+    # Atomic write, same pattern as the upload path above: write to a
+    # temp file, then rename into place, so a crash mid-write (or a
+    # concurrent read from retrieval-api) never sees a truncated file.
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
