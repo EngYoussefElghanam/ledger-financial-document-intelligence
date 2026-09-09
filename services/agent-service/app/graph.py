@@ -116,17 +116,24 @@ def check_evidence_sufficiency(state: AgentState) -> dict:
 
     q_type = state.get("question_type", "text")
 
+    entity_guidance = (
+        "(Note: The evidence is extracted directly from the target company's financial filing, "
+        "so references to 'the Company' or general tabular line items correspond to the entity in question.)"
+    )
+
     # For numerical questions, check if required numbers for calculation exist
     if q_type == "numerical":
         prompt = f"""{evidence_text}
 
 Does this evidence contain the financial figures or numbers needed to calculate or answer the question "{state['question']}"?
+{entity_guidance}
 
 Reply with ONLY one word: yes or no."""
     else:
         prompt = f"""{evidence_text}
 
-Does this answer the question "{state['question']}"?
+Does this evidence contain the answer to the question "{state['question']}"?
+{entity_guidance}
 
 Reply with ONLY one word: yes or no."""
 
