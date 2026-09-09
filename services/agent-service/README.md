@@ -185,7 +185,11 @@ pip install -r requirements.txt
 GROQ_API_KEY=gsk_...
 
 # Service URLs
+<<<<<<< Updated upstream
 RETRIEVAL_API_URL=http://localhost:8000
+=======
+RETRIEVAL_API_URL=http://localhost:8002
+>>>>>>> Stashed changes
 
 # Observability & Tracing (LangSmith)
 LANGSMITH_TRACING=true
@@ -254,4 +258,10 @@ The service natively integrates with **LangSmith** for full end-to-end tracing, 
 - **Token & Cost Auditing:** Live tracking of prompt tokens, completion tokens, and approximate invocation costs per query.
 - **Visual Failure Inspection:** If an unanswerable query triggers the retry loop, LangSmith visually maps the conditional fallback to `insufficient_evidence`.
 
+<<<<<<< Updated upstream
 To view traces, visit [smith.langchain.com](https://smith.langchain.com) under the project `ledger-agent-service`.
+=======
+To view traces, visit [smith.langchain.com](https://smith.langchain.com) under the project `ledger-agent-service`.
+> Retrieval runs at `http://localhost:8002` by default. All services load the
+> repository-root `.env`; copy `.env.example` there before starting locally.
+>>>>>>> Stashed changes
