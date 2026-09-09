@@ -4,9 +4,9 @@
 
 | Service              | Port |
 | -------------------- | ---- |
-| orchestrator-api     | 8000 |
+| orchestrator-api     | 8006 |
 | doc-processor-api    | 8001 |
-| retrieval-api        | 8002 |
+| retrieval-api        | 8000 |
 | agent-service        | 8003 |
 | answer-validator-api | 8004 |
 | eval-service         | 8005 |
