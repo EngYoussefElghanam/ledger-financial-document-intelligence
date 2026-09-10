@@ -1,6 +1,6 @@
 import gradio as gr
 
-from client import get_documents, get_document_detail
+from app.client import get_document_detail, get_documents
 
 
 def _format_structured_values(values: dict) -> str:

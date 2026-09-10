@@ -1,13 +1,13 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /service
 
 
 COPY services/ui-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY services/ui-service/app/ .
+COPY services/ui-service/app/ ./app/
 
 EXPOSE 7860
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "app.main"]

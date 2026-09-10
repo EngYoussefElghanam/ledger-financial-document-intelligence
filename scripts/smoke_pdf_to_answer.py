@@ -11,7 +11,7 @@ def main() -> None:
     parser.add_argument("pdf", type=Path)
     parser.add_argument("question")
     parser.add_argument("second_question")
-    parser.add_argument("--orchestrator-url", default="http://localhost:8000")
+    parser.add_argument("--orchestrator-url", default="http://localhost:8006")
     args = parser.parse_args()
 
     health = httpx.get(f"{args.orchestrator_url}/health", timeout=10)

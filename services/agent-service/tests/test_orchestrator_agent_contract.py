@@ -38,6 +38,14 @@ async def test_real_client_reaches_real_ask_route(monkeypatch):
     config.USE_MOCK_AGENT = False
     monkeypatch.setitem(sys.modules, "app.config", config)
 
+    client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=agent_main.app),
+        base_url="http://agent-service",
+    )
+    http_client = types.ModuleType("app.http_client")
+    http_client.get_client = lambda: client
+    monkeypatch.setitem(sys.modules, "app.http_client", http_client)
+
     client_path = (
         Path(__file__).resolve().parents[2]
         / "orchestrator-api"
@@ -48,14 +56,10 @@ async def test_real_client_reaches_real_ask_route(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    real_async_client = httpx.AsyncClient
-
-    def asgi_client(**kwargs):
-        kwargs["transport"] = httpx.ASGITransport(app=agent_main.app)
-        return real_async_client(**kwargs)
-
-    monkeypatch.setattr(module.httpx, "AsyncClient", asgi_client)
-    answer = await module.ask_agent("question-through-http", "contract_doc")
+    try:
+        answer = await module.ask_agent("question-through-http", "contract_doc")
+    finally:
+        await client.aclose()
 
     assert answer["params"]["value"] == "question-through-http"
     assert answer["evidence"][0]["document_id"] == "contract_doc"

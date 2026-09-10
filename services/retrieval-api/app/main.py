@@ -10,7 +10,7 @@ from app.database import qdrant_client, init_db
 from app.embeddings import get_dense_vectors, get_sparse_vectors, get_rerank_scores
 from ledger_observability import observation
 
-app = FastAPI(title="Retrieval API", description="An API that retrievs the relevant parts from the document")
+app = FastAPI(title="Retrieval API", description="Retrieve relevant content from financial documents")
 
 # Setup database on startup
 init_db()

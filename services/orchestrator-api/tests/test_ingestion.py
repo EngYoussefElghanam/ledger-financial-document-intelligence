@@ -73,7 +73,7 @@ def manifest_path():
 def test_failed_retrieval_is_persisted_and_resumable(monkeypatch, manifest_path):
     monkeypatch.setattr(manifest_module, "CORPUS_MANIFEST_PATH", manifest_path)
     services = FakeServices()
-    monkeypatch.setattr(main_module.httpx, "AsyncClient", lambda: services)
+    monkeypatch.setattr(main_module, "get_client", lambda: services)
     client = TestClient(main_module.app)
 
     failed = client.post(
@@ -108,7 +108,7 @@ def test_stable_dataset_id_rejects_different_content(monkeypatch, manifest_path)
     monkeypatch.setattr(manifest_module, "CORPUS_MANIFEST_PATH", manifest_path)
     services = FakeServices()
     services.retrieval_fails = False
-    monkeypatch.setattr(main_module.httpx, "AsyncClient", lambda: services)
+    monkeypatch.setattr(main_module, "get_client", lambda: services)
     client = TestClient(main_module.app)
 
     first = client.post(

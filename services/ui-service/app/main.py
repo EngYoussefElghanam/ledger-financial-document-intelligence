@@ -1,10 +1,10 @@
 import gradio as gr
 
-from theme import theme, CUSTOM_CSS
-from components.chat_tab import build_chat_tab
-from components.dashboard_tab import build_dashboard_tab
-from components.documents_tab import build_documents_tab
-from client import runtime_status
+from app.client import runtime_status
+from app.components.chat_tab import build_chat_tab
+from app.components.dashboard_tab import build_dashboard_tab
+from app.components.documents_tab import build_documents_tab
+from app.theme import CUSTOM_CSS, theme
 
 status = runtime_status()
 
@@ -37,7 +37,6 @@ with gr.Blocks(title="LEDGER") as demo:
         demo.load(fn=docs_load_fn, outputs=docs_outputs)
 
 if __name__ == "__main__":
-    
     demo.launch(
         server_name="0.0.0.0",
         theme=theme,

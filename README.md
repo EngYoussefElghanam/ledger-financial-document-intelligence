@@ -69,7 +69,7 @@ ledger-financial-document-intelligence/
 |   |-- schemas/                  Pydantic contracts shared by services
 |   `-- document.schema.json       Exported document JSON schema
 |-- docker-compose.yml            Intended multi-service deployment entrypoint
-|-- start.sh                      Intended startup helper
+|-- start.sh                      One-command Docker Compose startup
 `-- README.md                     This project guide
 ```
 
@@ -529,14 +529,14 @@ during data preparation rather than normal API requests.
 
 ### `docker-compose.yml`
 
-Reserved for starting the complete service graph together. The current local
-checkout should be checked before relying on it because service startup and
-volume wiring may still need completion.
+Starts the complete seven-service graph with health checks, persistent corpus
+and model volumes, local source mounts, and the canonical port map.
 
 ### `start.sh`
 
-Reserved for a one-command local startup flow. On Windows, run the equivalent
-service commands directly or use Docker once Compose is configured.
+Validates Compose and starts the complete stack with a build. It creates a
+local `.env` from `.env.example` when needed. Run `./start.sh -d` for detached
+startup; Windows users can run `docker compose up --build` directly.
 
 ### `.env.example`
 
@@ -586,7 +586,7 @@ python -m uvicorn app.main:app --reload --port 8006
 python -m uvicorn app.main:app --reload --port 8005
 
 # UI
-python app/main.py
+python -m app.main
 ```
 
 When running a service from its own directory, ensure the `shared` directory

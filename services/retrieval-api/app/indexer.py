@@ -1,36 +1,35 @@
-import os
+"""Bulk-submit processed document JSON files to retrieval-api."""
+
 import json
-import httpx
+import os
 from pathlib import Path
 
+import httpx
 
-API_URL = "http://localhost:8002/ingest" 
-FOLDER_PATH = Path.cwd() / "data" / "processed"
 
-def index_all_files():
-    # Loop through every file in the folder
-    for filename in os.listdir(FOLDER_PATH):
-        if filename.endswith(".json"):
-            file_path = os.path.join(FOLDER_PATH, filename)
-            
-            # Read the JSON file
-            with open(file_path, "r", encoding="utf-8") as f:
-                doc_payload = json.load(f)
-                
-            print(f"Indexing {filename}...")
-            
+RETRIEVAL_API_URL = os.getenv("RETRIEVAL_API_URL", "http://localhost:8002").rstrip("/")
+PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", "data/processed")).resolve()
+
+
+def index_all_files() -> int:
+    """Submit every processed JSON document and return the failure count."""
+    if not PROCESSED_DIR.is_dir():
+        raise SystemExit(f"Processed-document directory does not exist: {PROCESSED_DIR}")
+
+    failures = 0
+    with httpx.Client(timeout=120.0) as client:
+        for file_path in sorted(PROCESSED_DIR.glob("*.json")):
+            print(f"Indexing {file_path.name}...")
             try:
-                # Send it to your /ingest endpoint
-                # Timeout is high because FastEmbed might take a few seconds per file
-                response = httpx.post(API_URL, json=doc_payload, timeout=120.0)
-                
-                if response.status_code == 200:
-                    print(f"✅ Success: {response.json()}")
-                else:
-                    print(f"❌ Failed {filename}: {response.status_code} - {response.text}")
-                    
-            except Exception as e:
-                print(f"⚠️ Error on {filename}: {str(e)}")
+                document = json.loads(file_path.read_text(encoding="utf-8"))
+                response = client.post(f"{RETRIEVAL_API_URL}/ingest", json=document)
+                response.raise_for_status()
+                print(f"Indexed {file_path.name}: {response.json()}")
+            except (OSError, json.JSONDecodeError, httpx.HTTPError) as exc:
+                failures += 1
+                print(f"Failed {file_path.name}: {exc}")
+    return failures
+
 
 if __name__ == "__main__":
-    index_all_files()
+    raise SystemExit(1 if index_all_files() else 0)

@@ -110,6 +110,27 @@ Example response:
 
 If no matching chunks are found, the endpoint returns `{ "results": [] }`.
 
+### `POST /filter`
+
+Returns chunks by exact metadata without vector search. `document_id` is
+required; `type`, `section`, and `limit` are optional. Agent-service uses this
+route when a question targets a known document or section.
+
+```json
+{
+	"document_id": "annual-report-2024",
+	"type": "table",
+	"section": "Financial Highlights",
+	"limit": 50
+}
+```
+
+### Bulk indexing processed JSON
+
+From the repository root, run `python services/retrieval-api/app/indexer.py` to
+submit every `data/processed/*.json` file. Override `PROCESSED_DIR` or
+`RETRIEVAL_API_URL` when the files or service use different locations.
+
 ## Storage and configuration
 
 The current implementation uses local Qdrant storage at `./qdrant_data`; Compose

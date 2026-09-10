@@ -137,7 +137,7 @@ services:
   ui-service:
     <<: *core
     working_dir: /workspace/services/ui-service
-    command: python app/main.py
+    command: python -m app.main
     ports: ["127.0.0.1:7860:7860"]
     volumes:
       - ./services/ui-service/app:/workspace/services/ui-service/app:ro
