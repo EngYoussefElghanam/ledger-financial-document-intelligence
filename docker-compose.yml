@@ -27,7 +27,7 @@ services:
       HF_HOME: /models/huggingface
       XDG_CACHE_HOME: /models
     volumes:
-      - processor-data:/workspace/services/doc-processor-api/data
+      - ./data:/workspace/services/doc-processor-api/data
       - ./services/doc-processor-api/app:/workspace/services/doc-processor-api/app:ro
       - model-cache:/models
     healthcheck:
@@ -52,7 +52,7 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
       LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
     volumes:
-      - retrieval-data:/workspace/services/retrieval-api/qdrant_data
+      - ./qdrant_data:/workspace/services/retrieval-api/qdrant_data
       - ./services/retrieval-api/app:/workspace/services/retrieval-api/app:ro
       - model-cache:/models
     healthcheck:
@@ -72,7 +72,7 @@ services:
     volumes:
       - ./services/agent-service/app:/workspace/services/agent-service/app:ro
     environment:
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:?Set GROQ_API_KEY in .env before starting the stack}
       RETRIEVAL_API_URL: http://retrieval-api:8002
       AGENT_MODEL: ${AGENT_MODEL:-qwen/qwen3.8-27b}
       AGENT_PROVIDER: ${AGENT_PROVIDER:-groq}
@@ -125,14 +125,20 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
       LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
     volumes:
-      - corpus-data:/workspace/data
+      - ./data:/workspace/data
       - ./services/orchestrator-api/app:/workspace/services/orchestrator-api/app:ro
     depends_on:
+      agent-service:
+        condition: service_healthy
+      doc-processor-api:
+        condition: service_healthy
+      retrieval-api:
+        condition: service_healthy
       answer-validator-api:
         condition: service_healthy
     healthcheck:
       <<: *api-health
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/ready')"]
 
   ui-service:
     <<: *core

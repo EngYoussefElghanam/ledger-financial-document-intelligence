@@ -73,6 +73,20 @@ ledger-financial-document-intelligence/
 `-- README.md                     This project guide
 ```
 
+## Run the full stack with Docker
+
+From the repository root, with Docker Desktop running:
+
+```powershell
+docker compose up --build
+```
+
+Open the UI at <http://localhost:7860>. To run in the background, use
+`docker compose up --build -d`. Stop the stack with `docker compose down`.
+
+Put `GROQ_API_KEY=...` in a root `.env` file before starting. Compose will
+stop immediately with a clear error if the key is missing.
+
 ## 3. Shared Contracts
 
 ### `shared/schemas/document.py`
