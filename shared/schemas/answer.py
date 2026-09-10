@@ -13,6 +13,8 @@ class Evidence(ContractModel):
     document_id: str = Field(min_length=1)
     page: int = Field(ge=1, strict=True)
     section: str | None = None
+    filename: str | None = None
+    quote: str | None = None
 
 
 Value = Union[StrictStr, StrictInt, StrictFloat]

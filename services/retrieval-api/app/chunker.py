@@ -31,6 +31,7 @@ def create_chunks(doc: ProcessedDocument):
                         metadata={
                             "chunk_id": block.block_id,
                             "document_id": doc.document_id,
+                            "source_filename": doc.source_filename,
                             "page_number": page.page_number,
                             "type": "text",
                             "section": block.section
@@ -50,6 +51,7 @@ def create_chunks(doc: ProcessedDocument):
                 metadata={
                     "chunk_id": table.table_id,
                     "document_id": doc.document_id,
+                    "source_filename": doc.source_filename,
                     "page_number": page.page_number,
                     "type": "table",
                     "section": table.section

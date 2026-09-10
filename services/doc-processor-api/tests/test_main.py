@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app, PROCESSED_DIR
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -83,6 +84,19 @@ def test_get_document_after_processing():
 def test_get_document_not_found():
     resp = client.get("/documents/does_not_exist")
     assert resp.status_code == 404
+
+
+def test_get_pdf_without_processed_document(monkeypatch, tmp_path):
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+    (uploads_dir / "unprocessed.pdf").write_bytes(b"%PDF-test")
+    monkeypatch.setattr(main_module, "UPLOADS_DIR", uploads_dir)
+
+    resp = client.get("/documents/unprocessed/pdf")
+
+    assert resp.status_code == 200
+    assert resp.content == b"%PDF-test"
+    assert resp.headers["content-type"] == "application/pdf"
 
 
 def test_reject_non_pdf():

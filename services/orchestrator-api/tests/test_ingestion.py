@@ -63,6 +63,19 @@ class FakeServices:
         )
 
 
+class FakePdfServices:
+    def build_request(self, method, url, **kwargs):
+        return httpx.Request(method, url, **kwargs)
+
+    async def send(self, request, **kwargs):
+        return httpx.Response(
+            200,
+            content=b"%PDF-test",
+            headers={"content-type": "application/pdf"},
+            request=request,
+        )
+
+
 @pytest.fixture
 def manifest_path():
     path = Path(__file__).parent / f"manifest-{uuid.uuid4().hex}.json"
@@ -124,3 +137,13 @@ def test_stable_dataset_id_rejects_different_content(monkeypatch, manifest_path)
 
     assert first.status_code == 200
     assert second.status_code == 409
+
+
+def test_pdf_proxy_does_not_require_manifest_record(monkeypatch):
+    monkeypatch.setattr(main_module, "get_client", lambda: FakePdfServices())
+    client = TestClient(main_module.app)
+
+    response = client.get("/documents/untracked/pdf")
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-test"

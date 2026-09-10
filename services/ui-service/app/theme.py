@@ -122,6 +122,14 @@ html, body, .dark, .gradio-container {{
     margin: 2px 0;
 }}
 
+.evidence-quote {{
+    color: {TEXT};
+    font-size: 12px;
+    margin-top: 3px;
+    max-height: 4.5em;
+    overflow: hidden;
+}}
+
 /* Figures render in amber, the terminal's signal color */
 .ledger-value {{
     font-variant-numeric: tabular-nums;

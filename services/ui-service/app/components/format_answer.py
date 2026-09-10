@@ -1,38 +1,30 @@
-"""
-Renders a schema-compliant answer dict (answer_type/evidence/params) as
-HTML for the Gradio chat window, styled to match the ledger identity —
-evidence entries as ledger line items, figures as tabular monospace.
-"""
+"""Render schema-compliant answers and clickable PDF evidence citations."""
 
 import html
-import os
 import urllib.parse
 
-# Bonus feature: when set, evidence citations link directly to the source
-# PDF page. Left empty, evidence renders as plain text — same behavior
-# as before this was added, no crash either way.
-PDF_BASE_URL = os.getenv("PDF_BASE_URL", "").rstrip("/")
+PDF_VIEWER_URL = "/viewer/viewer.html"
 
 
 def _esc(value) -> str:
-    """HTML-escape any interpolated value. Financial data routinely
-    contains characters like & (AT&T, R&D) or < that would otherwise
-    corrupt the rendered HTML."""
     return html.escape(str(value))
 
 
-def _pdf_link(document_id: str, page) -> str | None:
-    """Builds a link to the source PDF at the cited page, if PDF_BASE_URL
-    is configured. Returns None (no link) if it isn't, or if document_id/
-    page aren't usable — callers must handle the None case."""
-    if not PDF_BASE_URL:
-        return None
+def _pdf_link(document_id: str, page, quote: str | None = None) -> str | None:
+    """Build a same-origin PDF.js viewer link for a grounded citation."""
     if not document_id or document_id == "unknown":
         return None
-    safe_id = urllib.parse.quote(str(document_id))
-    url = f"{PDF_BASE_URL}/{safe_id}.pdf"
+    safe_id = urllib.parse.quote(str(document_id), safe="")
+    file_url = f"/api/documents/{safe_id}/pdf"
+    url = f"{PDF_VIEWER_URL}?{urllib.parse.urlencode({'file': file_url})}"
+    fragment = {}
     if page not in (None, "?"):
-        url += f"#page={urllib.parse.quote(str(page))}"
+        fragment["page"] = str(page)
+    if quote:
+        fragment["search"] = " ".join(str(quote).split())
+        fragment["phrase"] = "true"
+    if fragment:
+        url += f"#{urllib.parse.urlencode(fragment)}"
     return url
 
 
@@ -41,42 +33,40 @@ def _format_evidence(evidence: list[dict]) -> str:
         return '<div class="evidence-line">no evidence cited</div>'
 
     lines = []
-    for ev in evidence:
-        doc_id = ev.get("document_id", "unknown")
-        page = ev.get("page", "?")
-        section = ev.get("section")
-        doc = _esc(doc_id)
-        page_esc = _esc(page)
-        text = f"{doc} \u00b7 p.{page_esc}"
+    for item in evidence:
+        document_id = item.get("document_id", "unknown")
+        filename = item.get("filename")
+        page = item.get("page", "?")
+        section = item.get("section")
+        quote = item.get("quote")
+
+        label = f"{_esc(filename or document_id)} · p.{_esc(page)}"
         if section:
-            text += f" \u00b7 {_esc(section)}"
+            label += f" · {_esc(section)}"
 
-        link = _pdf_link(doc_id, page)
+        link = _pdf_link(document_id, page, quote)
         if link:
-            # Escape the URL for the HTML attribute too — document_id/page
-            # are already escaped above; the URL itself is built from the
-            # same values via urllib.parse.quote, but escape defensively.
             safe_link = html.escape(link, quote=True)
-            content = f'<a href="{safe_link}" target="_blank" rel="noopener">{text} &#8599;</a>'
+            content = f'<a href="{safe_link}" target="_blank" rel="noopener">{label} &#8599;</a>'
         else:
-            content = text
+            content = label
 
-        lines.append(f'<div class="evidence-line">{content}</div>')
+        quote_html = (
+            f'<div class="evidence-quote">&ldquo;{_esc(quote)}&rdquo;</div>'
+            if quote else ""
+        )
+        lines.append(f'<div class="evidence-line">{content}{quote_html}</div>')
     return "\n".join(lines)
 
 
 def format_answer(response: dict) -> str:
-    """
-    response: the dict returned by client.ask_question()
-    Returns an HTML string ready to drop into a Gradio chat bubble.
-    """
+    """Return answer HTML ready for a Gradio chat bubble."""
     answer_type = response.get("answer_type")
     params = response.get("params", {})
     evidence = response.get("evidence", [])
 
     if answer_type == "direct":
         body = f'<span class="ledger-value">{_esc(params.get("value"))}</span>'
-
     elif answer_type == "calculated":
         value = _esc(params.get("value"))
         formula = _esc(params.get("formula", ""))
@@ -84,16 +74,12 @@ def format_answer(response: dict) -> str:
             f'<span class="ledger-value">{value}</span>'
             f'<br><span class="evidence-line">formula: {formula}</span>'
         )
-
     elif answer_type == "multi_span":
-        values = params.get("values", [])
-        body = "<br>".join(f"\u2014 {_esc(v)}" for v in values)
-
+        body = "<br>".join(f"— {_esc(value)}" for value in params.get("values", []))
     elif answer_type == "insufficient_evidence":
         reason = _esc(params.get("reason", "No reason given."))
-        return f'<span class="ledger-flag">\u2691 insufficient evidence</span><br>{reason}'
-
+        return f'<span class="ledger-flag">⚑ insufficient evidence</span><br>{reason}'
     else:
-        return f'<span class="ledger-flag">\u2691 unrecognized answer_type: {_esc(answer_type)}</span>'
+        return f'<span class="ledger-flag">⚑ unrecognized answer_type: {_esc(answer_type)}</span>'
 
     return f"{body}<hr style='margin:8px 0;border-color:#2A2E28'>{_format_evidence(evidence)}"

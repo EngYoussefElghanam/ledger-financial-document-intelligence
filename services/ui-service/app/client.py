@@ -104,22 +104,28 @@ _MOCK_RESPONSES = [
     {
         "answer_type": "direct",
         "evidence": [
-            {"document_id": "doc_017", "page": 1, "section": "Income Statement"}
+            {
+                "document_id": "doc_017",
+                "filename": "cts-corporation_2019.pdf",
+                "page": 1,
+                "section": "Income Statement",
+                "quote": "Operating income was $142.5 million.",
+            }
         ],
         "params": {"value": "$142.5M"},
     },
     {
         "answer_type": "calculated",
         "evidence": [
-            {"document_id": "doc_041", "page": 2, "section": "Operating Expenses"},
-            {"document_id": "doc_041", "page": 2, "section": "Operating Expenses"},
+            {"document_id": "doc_041", "filename": "jabil-circuit-inc_2019.pdf", "page": 2, "section": "Operating Expenses", "quote": "Operating expenses were 3,875 and 3,410."},
+            {"document_id": "doc_041", "filename": "jabil-circuit-inc_2019.pdf", "page": 2, "section": "Operating Expenses", "quote": "Operating expenses were 3,875 and 3,410."},
         ],
         "params": {"value": 13.4, "formula": "(3875-3410)/3410*100"},
     },
     {
         "answer_type": "multi_span",
         "evidence": [
-            {"document_id": "doc_022", "page": 3, "section": "Operating Expenses"}
+            {"document_id": "doc_022", "filename": "black-knight-financial-services-inc_2019.pdf", "page": 3, "section": "Operating Expenses", "quote": "Marketing, R&D and logistics were the principal categories."}
         ],
         "params": {"values": ["Marketing", "R&D", "Logistics"]},
     },

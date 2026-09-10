@@ -6,8 +6,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import FastAPI, HTTPException, Response, UploadFile
+from fastapi import FastAPI, Header, HTTPException, Response, UploadFile
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
+from starlette.responses import StreamingResponse
 
 from app.agent_client import AgentDependencyError, ask_agent
 from app.config import (
@@ -225,6 +227,43 @@ async def get_document(document_id: str) -> dict:
     return _to_ui_summary(resp.json(), record)
 
 
+@app.get("/documents/{document_id}/pdf")
+async def get_document_pdf(
+    document_id: str,
+    range_header: str | None = Header(None, alias="Range"),
+):
+    """Stream a stored source PDF without exposing the processor service."""
+    headers = {"Range": range_header} if range_header else None
+    client = get_client()
+    upstream = await client.send(
+        client.build_request(
+            "GET", f"{DOC_PROCESSOR_URL}/documents/{document_id}/pdf", headers=headers
+        ),
+        stream=True,
+    )
+    if upstream.status_code == 404:
+        await upstream.aclose()
+        raise HTTPException(status_code=404, detail="Source PDF is unavailable")
+    if upstream.status_code >= 400:
+        await upstream.aclose()
+        raise HTTPException(status_code=502, detail="PDF storage dependency failed")
+
+    forwarded = {
+        key: value for key, value in upstream.headers.items()
+        if key.lower() in {
+            "accept-ranges", "content-disposition", "content-length", "content-range",
+            "etag", "last-modified",
+        }
+    }
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        status_code=upstream.status_code,
+        media_type="application/pdf",
+        headers=forwarded,
+        background=BackgroundTask(upstream.aclose),
+    )
+
+
 def _to_ui_summary(processed_document: dict, record: dict | None = None) -> dict:
     """Reshape a full ProcessedDocument (doc-processor-api's format) into
     the smaller summary shape ui-service's client.py expects."""
@@ -258,7 +297,11 @@ class AskDiagnosticResponse(BaseModel):
     diagnostics: dict
 
 
-@app.post("/ask", response_model=Answer | AskDiagnosticResponse)
+@app.post(
+    "/ask",
+    response_model=Answer | AskDiagnosticResponse,
+    response_model_exclude_none=True,
+)
 async def ask(request: AskRequest, response: Response) -> dict:
     start = time.perf_counter()
     if request.evaluation_variant not in {"reranker_on", "reranker_off"}:
@@ -360,8 +403,15 @@ async def ask(request: AskRequest, response: Response) -> dict:
 @app.get("/dashboard")
 async def dashboard() -> dict:
     documents = await list_documents()
+    indexed_documents = len(documents)
+    try:
+        stats_response = await get_client().get(f"{RETRIEVAL_URL}/stats", timeout=30)
+        stats_response.raise_for_status()
+        indexed_documents = stats_response.json().get("indexed_documents", indexed_documents)
+    except (httpx.HTTPError, ValueError):
+        pass
     return {
-        "num_documents": len(documents),
+        "num_documents": indexed_documents,
         "documents": documents,
         "recent_queries": _recent_queries[-10:],
     }
