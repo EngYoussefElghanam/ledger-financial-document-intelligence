@@ -22,11 +22,11 @@ def main():
     parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
     targets = [(name, f"http://127.0.0.1:{port}/health") for name, port in
-               [("orchestrator", 8000), ("processor", 8001), ("retrieval", 8002),
+               [("orchestrator", 8006), ("processor", 8001), ("retrieval", 8002),
                 ("agent", 8003), ("validator", 8004), ("evaluator", 8005)]]
     targets.extend([("ui", "http://127.0.0.1:7860/"),
-                    ("readiness", "http://127.0.0.1:8000/ready"),
-                    ("corpus", "http://127.0.0.1:8000/ingestion")])
+                    ("readiness", "http://127.0.0.1:8006/ready"),
+                    ("corpus", "http://127.0.0.1:8006/ingestion")])
     with ThreadPoolExecutor(max_workers=9) as executor:
         checks = dict(executor.map(lambda target: check(*target), targets))
     corpus = checks["corpus"]

@@ -580,7 +580,7 @@ python -m uvicorn app.main:app --reload --port 8003
 python -m uvicorn app.main:app --reload --port 8004
 
 # Orchestrator
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8006
 
 # Evaluation service
 python -m uvicorn app.main:app --reload --port 8005

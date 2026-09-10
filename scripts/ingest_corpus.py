@@ -15,7 +15,7 @@ import httpx
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process and index a PDF corpus")
     parser.add_argument("directory", type=Path)
-    parser.add_argument("--orchestrator-url", default="http://localhost:8000")
+    parser.add_argument("--orchestrator-url", default="http://localhost:8006")
     parser.add_argument("--manifest", type=Path, help="Prioritize documents referenced by this evaluation manifest")
     parser.add_argument("--manifest-items", type=int, help="Use only the first N manifest questions when selecting PDFs")
     parser.add_argument("--only-manifest", action="store_true", help="Index only the selected manifest's PDFs")

@@ -223,7 +223,7 @@ class EvaluationRunner:
     ) -> dict[str, Any]:
         request_id = f"{summary.run_id}:{item.question_id}"
         trace_id = self.langfuse.trace_id(request_id)
-        orchestrator_url = str(request.orchestrator_url or "http://localhost:8000").rstrip("/")
+        orchestrator_url = str(request.orchestrator_url or "http://localhost:8006").rstrip("/")
         document_id = item.document_ids[0] if request.oracle_document_scope and item.document_ids else None
         status = "ok"
         error: str | None = None

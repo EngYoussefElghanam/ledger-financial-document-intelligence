@@ -89,7 +89,7 @@ Fix: choose `/ask` consistently; add an HTTP contract test that exercises the ac
 
 Evidence: UI `app/client.py:16,58–59` defaults `USE_MOCK=true`; orchestrator `agent_client.py:17,45–46` defaults `USE_MOCK_AGENT=true`. Both return random predefined answers unrelated to the question. UI mock responses bypass the validator entirely.
 
-Separately, agent `app/tools.py:9` defaults retrieval to `http://localhost:8000`, while root README and architecture assign retrieval port **8002** and orchestrator port **8000**. Switching mocks off without fixing this URL sends `/search` to the wrong service. The agent README repeats the conflicting port.
+The integration now uses one canonical port map: processor **8001**, retrieval **8002**, agent **8003**, validator **8004**, evaluation **8005**, and orchestrator **8006**. Agent retrieval calls and UI/evaluation orchestrator calls follow that map.
 
 Fix: provide one configuration template with correct URLs and explicit demo/mock flags; make the intended real launch path disable both mocks. Display mock status clearly when intentionally used. Verify the configuration actually loads: UI and orchestrator read process environment variables but do not load a root `.env` automatically; the agent loads a working-directory-relative `.env`.
 
@@ -263,7 +263,7 @@ The PDF says bonus credit requires a demonstrated effect, not just implementatio
 | Human correction of extracted fields, p. 7 | Missing | UI tables are read-only. Add a correction action with source reference, original/new value, audit/version history, reindexing and cache invalidation. Demonstrate an extraction error corrected through to a changed supported answer. |
 | Rich company-level financial dashboard, p. 6 | Missing | Basic corpus dashboard exists. Company/period/currency/scale normalization and substantive financial views are absent. Only attempt after required inspection and evaluation; short excerpts may not support broad company comparisons. |
 
-The partially written processor Dockerfile has a specific build-path issue: it installs `/shared` correctly first, but later installs a requirements file containing `-e ../../shared` from `WORKDIR /service`. That relative path resolves to `/shared` in the container (because traversal above root stays at root), so this is **not itself a confirmed broken dependency path**. Preserve a consistent root build context and validate the actual build rather than assuming the relative spelling fails. The processor listens on container port 8000 while local documentation uses 8001; valid Compose port mappings/internal URLs must account for this. No Docker build was run.
+The processor Dockerfile uses the repository root build context and installs the shared package before service requirements. Its standalone and Compose configurations now both listen on port **8001**. A full Docker build is still required in environments where the ML dependencies and model downloads are available.
 
 Suggested bonus order after core completion: source-page highlighting; query decomposition for cross-document questions; complete Compose; structured lookup; memory/cache; human correction; rich company dashboards. Select based on measured bottlenecks rather than feature count.
 

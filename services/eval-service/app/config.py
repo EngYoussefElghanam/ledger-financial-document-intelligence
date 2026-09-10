@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(ROOT_DIR / ".env", override=False)
 
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8000").rstrip("/")
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8006").rstrip("/")
 EVAL_DATA_DIR = Path(
     os.getenv("EVAL_DATA_DIR", str(ROOT_DIR / "data" / "evaluation"))
 ).resolve()

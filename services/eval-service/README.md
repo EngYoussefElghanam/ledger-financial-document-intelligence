@@ -25,7 +25,7 @@ Set these in the repository-root `.env`:
 ```dotenv
 EVAL_DATASET_PATH=C:/absolute/path/to/questions_setA_practice.json
 EVAL_DATA_DIR=C:/absolute/path/to/data/evaluation
-ORCHESTRATOR_URL=http://localhost:8000
+ORCHESTRATOR_URL=http://localhost:8006
 
 # Required for the final compliant benchmark, optional for local metric tests.
 LANGFUSE_PUBLIC_KEY=

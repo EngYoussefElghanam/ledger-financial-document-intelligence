@@ -45,7 +45,7 @@ disk space and internet access. Retrieval's startup health check allows time
 for its initial downloads. The agent waits for retrieval to become healthy.
 
 After all six containers are healthy, you may ingest a PDF you already have
-through http://localhost:8000/docs (`POST /documents/ingest`), supplying an
+through http://localhost:8006/docs (`POST /documents/ingest`), supplying an
 optional dataset ID. Downloading the full dataset is not required to run a
 single-document demo.
 
@@ -54,7 +54,7 @@ single-document demo.
 | Service | Local URL |
 |---|---|
 | UI | http://localhost:7860 |
-| Orchestrator | http://localhost:8000/docs |
+| Orchestrator | http://localhost:8006/docs |
 | Processor | http://localhost:8001/docs |
 | Retrieval | http://localhost:8002/docs |
 | Agent | http://localhost:8003/docs |

@@ -8,7 +8,7 @@ host-side scripts. Run commands from the repository root.
 ```powershell
 docker compose up -d --build
 docker compose ps
-Invoke-RestMethod http://localhost:8000/ready
+Invoke-RestMethod http://localhost:8006/ready
 Invoke-RestMethod http://localhost:8005/health
 python scripts/check_stack.py --manifest data/evaluation/manifests/2d95de53424cc9c5.json
 ```
@@ -38,7 +38,7 @@ evaluation documents but also indexes the remaining PDFs):
 ```powershell
 python scripts/ingest_corpus.py data --manifest data/evaluation/manifests/2d95de53424cc9c5.json --max-documents 1
 python scripts/ingest_corpus.py data --manifest data/evaluation/manifests/2d95de53424cc9c5.json
-Invoke-RestMethod http://localhost:8000/ingestion
+Invoke-RestMethod http://localhost:8006/ingestion
 ```
 
 Ingestion is resumable and skips already indexed documents. The PDF filename

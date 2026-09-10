@@ -111,8 +111,8 @@ services:
   orchestrator-api:
     <<: *core
     working_dir: /workspace/services/orchestrator-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    ports: ["127.0.0.1:8000:8000"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8006
+    ports: ["127.0.0.1:8006:8006"]
     environment:
       USE_MOCK_AGENT: "false"
       DOC_PROCESSOR_URL: http://doc-processor-api:8001
@@ -132,7 +132,7 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *api-health
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
 
   ui-service:
     <<: *core
@@ -143,7 +143,7 @@ services:
       - ./services/ui-service/app:/workspace/services/ui-service/app:ro
     environment:
       USE_MOCK: "false"
-      ORCHESTRATOR_URL: http://orchestrator-api:8000
+      ORCHESTRATOR_URL: http://orchestrator-api:8006
       GRADIO_ANALYTICS_ENABLED: "False"
     depends_on:
       orchestrator-api:
@@ -162,7 +162,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8005
     ports: ["127.0.0.1:8005:8005"]
     environment:
-      ORCHESTRATOR_URL: http://orchestrator-api:8000
+      ORCHESTRATOR_URL: http://orchestrator-api:8006
       EVAL_DATA_DIR: /workspace/data/evaluation
       EVAL_DATASET_PATH: /workspace/data/questions_setA_practice.json
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}

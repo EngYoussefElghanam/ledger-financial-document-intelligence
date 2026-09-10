@@ -13,7 +13,7 @@ document listings from doc-processor-api into the shape ui-service expects.
 
 ## Run
 
-    python -m uvicorn app.main:app --reload --port 8000
+    python -m uvicorn app.main:app --reload --port 8006
 
 ## Test
 

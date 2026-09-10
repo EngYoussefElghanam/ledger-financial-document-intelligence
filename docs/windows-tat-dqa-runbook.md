@@ -10,13 +10,13 @@ The live request path is:
 
 ```text
 TAT-DQA PDF
-  -> orchestrator :8000
+  -> orchestrator :8006
   -> document processor :8001
   -> retrieval ingestion/Qdrant :8002
   -> corpus manifest
 
 Question from UI :7860
-  -> orchestrator :8000
+  -> orchestrator :8006
   -> agent :8003
   -> retrieval search :8002
   -> validator :8004
@@ -111,7 +111,7 @@ Use these values, replacing the key placeholder:
 USE_MOCK=false
 USE_MOCK_AGENT=false
 
-ORCHESTRATOR_URL=http://localhost:8000
+ORCHESTRATOR_URL=http://localhost:8006
 DOC_PROCESSOR_URL=http://localhost:8001
 RETRIEVAL_URL=http://localhost:8002
 RETRIEVAL_API_URL=http://localhost:8002
@@ -241,11 +241,11 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8003
 If this terminal reports a missing Groq key, correct the repository-root
 `.env` and restart it.
 
-### Terminal 5: orchestrator, port 8000
+### Terminal 5: orchestrator, port 8006
 
 ```powershell
 Set-Location "$repo\services\orchestrator-api"
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8006
 ```
 
 ### Terminal 6: UI, port 7860
@@ -269,7 +269,7 @@ Invoke-RestMethod "http://localhost:8001/health"
 Invoke-RestMethod "http://localhost:8002/health"
 Invoke-RestMethod "http://localhost:8004/health"
 Invoke-RestMethod "http://localhost:8003/health"
-Invoke-RestMethod "http://localhost:8000/health"
+Invoke-RestMethod "http://localhost:8006/health"
 ```
 
 The orchestrator response must contain `"mock_agent": false`.
@@ -301,7 +301,7 @@ command should print `SKIP`, not create a duplicate.
 ## 12. Inspect ingestion state
 
 ```powershell
-$state = Invoke-RestMethod "http://localhost:8000/ingestion"
+$state = Invoke-RestMethod "http://localhost:8006/ingestion"
 $state.counts
 $state.documents | Format-Table document_id,status,failed_stage,total_chunks
 ```
@@ -322,7 +322,7 @@ To resume a document that processed successfully but failed during retrieval:
 $documentId = "replace_with_document_uid"
 Invoke-RestMethod `
   -Method Post `
-  -Uri "http://localhost:8000/documents/$documentId/resume"
+  -Uri "http://localhost:8006/documents/$documentId/resume"
 ```
 
 If processing itself failed, fix the processor and run `ingest_corpus.py`
@@ -357,7 +357,7 @@ $body = @{
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri "http://localhost:8000/ask" `
+  -Uri "http://localhost:8006/ask" `
   -ContentType "application/json" `
   -Body $body
 ```
@@ -395,8 +395,8 @@ retry only retrieval ingestion.
 After each split:
 
 ```powershell
-(Invoke-RestMethod "http://localhost:8000/ingestion").counts
-(Invoke-RestMethod "http://localhost:8000/documents").Count
+(Invoke-RestMethod "http://localhost:8006/ingestion").counts
+(Invoke-RestMethod "http://localhost:8006/documents").Count
 ```
 
 The `/documents` count is the searchable count. Do not use the number of JSON

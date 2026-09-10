@@ -6,7 +6,7 @@
 | -------------------- | ---- |
 | orchestrator-api     | 8006 |
 | doc-processor-api    | 8001 |
-| retrieval-api        | 8000 |
+| retrieval-api        | 8002 |
 | agent-service        | 8003 |
 | answer-validator-api | 8004 |
 | eval-service         | 8005 |

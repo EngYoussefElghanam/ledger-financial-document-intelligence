@@ -26,7 +26,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset_name")
     parser.add_argument("--run-name", required=True)
-    parser.add_argument("--orchestrator-url", default="http://localhost:8000")
+    parser.add_argument("--orchestrator-url", default="http://localhost:8006")
     parser.add_argument("--variant", choices=["reranker_on", "reranker_off"], default="reranker_on")
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=120)
