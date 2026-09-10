@@ -17,9 +17,11 @@ ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8006")
 USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
 
 
+
 def runtime_status() -> dict:
     """Expose the active backend mode for the UI status banner."""
     return {"mock": USE_MOCK, "orchestrator_url": ORCHESTRATOR_URL}
+
 
 
 class OrchestratorError(Exception):

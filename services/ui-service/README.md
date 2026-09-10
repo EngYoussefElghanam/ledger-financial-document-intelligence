@@ -82,10 +82,13 @@ The service holds no data of its own; everything is fetched from
 | `USE_MOCK` | `true` = serve built-in mock responses, no orchestrator needed. `false` (default) = call the real API |
 | `PDF_BASE_URL` | Optional. When set, evidence citations become clickable links that open the source PDF at the cited page (`{PDF_BASE_URL}/{document_id}.pdf#page={page}`). Left empty, evidence stays plain text — no code change needed either way. |
 
+ fix/e6-orchestrator-port
+=======
 The service defaults to the real orchestrator (`USE_MOCK=false`). When mock
 mode is intentionally enabled, the UI shows a prominent banner because mock
 answers bypass retrieval and validation.
 
+ main
 `orchestrator-api`'s `/ask`, `/dashboard`, and `/documents` are live and
 tested (PR #10) — `USE_MOCK=false` is now the default. Its response
 shapes were checked directly against this service's client code:
