@@ -68,7 +68,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Interactive API docs: `http://localhost:8000/docs`
+Interactive API docs: `http://localhost:8001/docs`
 
 ## Endpoints
 
@@ -135,7 +135,7 @@ The Dockerfile lives inside this service's own folder (not the repo root) to avo
 ```bash
 # from the repo root
 docker build -t doc-processor-api -f services/doc-processor-api/Dockerfile .
-docker run -p 8000:8000 doc-processor-api
+docker run -p 8001:8001 doc-processor-api
 ```
 
 To build with GPU-enabled torch instead of the CPU-only default (requires an NVIDIA GPU + NVIDIA Container Toolkit on the host, and `docker run --gpus all`):

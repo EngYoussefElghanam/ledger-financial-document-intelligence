@@ -1,7 +1,7 @@
 import gradio as gr
 
-from client import ask_question
-from components.format_answer import format_answer
+from app.client import ask_question
+from app.components.format_answer import format_answer
 
 
 def build_chat_tab():

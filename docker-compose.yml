@@ -1,0 +1,187 @@
+name: ledger
+
+x-core: &core
+  image: ledger-core:local
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: core
+
+x-api-health: &api-health
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+services:
+  doc-processor-api:
+    image: ledger-ml:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ml
+    working_dir: /workspace/services/doc-processor-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    ports: ["127.0.0.1:8001:8001"]
+    environment:
+      HF_HOME: /models/huggingface
+      XDG_CACHE_HOME: /models
+    volumes:
+      - processor-data:/workspace/services/doc-processor-api/data
+      - ./services/doc-processor-api/app:/workspace/services/doc-processor-api/app:ro
+      - model-cache:/models
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+
+  retrieval-api:
+    image: ledger-ml:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: ml
+    working_dir: /workspace/services/retrieval-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002
+    ports: ["127.0.0.1:8002:8002"]
+    environment:
+      HF_HOME: /models/huggingface
+      XDG_CACHE_HOME: /models
+      FASTEMBED_CACHE_PATH: /models/fastembed
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+    volumes:
+      - retrieval-data:/workspace/services/retrieval-api/qdrant_data
+      - ./services/retrieval-api/app:/workspace/services/retrieval-api/app:ro
+      - model-cache:/models
+    healthcheck:
+      <<: *api-health
+      start_period: 600s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+
+  agent-service:
+    image: ledger-agent:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: agent
+    working_dir: /workspace/services/agent-service
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003
+    ports: ["127.0.0.1:8003:8003"]
+    volumes:
+      - ./services/agent-service/app:/workspace/services/agent-service/app:ro
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      RETRIEVAL_API_URL: http://retrieval-api:8002
+      AGENT_MODEL: ${AGENT_MODEL:-qwen/qwen3.8-27b}
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-groq}
+      AGENT_PROMPT_VERSION: ${AGENT_PROMPT_VERSION:-graph-v1}
+      LLM_INPUT_COST_PER_MILLION: ${LLM_INPUT_COST_PER_MILLION:-0}
+      LLM_OUTPUT_COST_PER_MILLION: ${LLM_OUTPUT_COST_PER_MILLION:-0}
+      LLM_PRICE_SOURCE: ${LLM_PRICE_SOURCE:-unconfigured}
+      LLM_PRICE_EFFECTIVE_DATE: ${LLM_PRICE_EFFECTIVE_DATE:-unconfigured}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+    depends_on:
+      retrieval-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+
+  answer-validator-api:
+    <<: *core
+    working_dir: /workspace/services/answer-validator-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004
+    ports: ["127.0.0.1:8004:8004"]
+    volumes:
+      - ./services/answer-validator-api/app:/workspace/services/answer-validator-api/app:ro
+    environment:
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+
+  orchestrator-api:
+    <<: *core
+    working_dir: /workspace/services/orchestrator-api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8006
+    ports: ["127.0.0.1:8006:8006"]
+    environment:
+      USE_MOCK_AGENT: "false"
+      DOC_PROCESSOR_URL: http://doc-processor-api:8001
+      RETRIEVAL_URL: http://retrieval-api:8002
+      AGENT_SERVICE_URL: http://agent-service:8003
+      ANSWER_VALIDATOR_URL: http://answer-validator-api:8004
+      CORPUS_MANIFEST_PATH: /workspace/data/corpus-manifest.json
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+    volumes:
+      - corpus-data:/workspace/data
+      - ./services/orchestrator-api/app:/workspace/services/orchestrator-api/app:ro
+    depends_on:
+      answer-validator-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+
+  ui-service:
+    <<: *core
+    working_dir: /workspace/services/ui-service
+    command: python -m app.main
+    ports: ["127.0.0.1:7860:7860"]
+    volumes:
+      - ./services/ui-service/app:/workspace/services/ui-service/app:ro
+    environment:
+      USE_MOCK: "false"
+      ORCHESTRATOR_URL: http://orchestrator-api:8006
+      GRADIO_ANALYTICS_ENABLED: "False"
+    depends_on:
+      orchestrator-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/')"]
+
+  eval-service:
+    image: ledger-eval:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: eval
+    working_dir: /workspace/services/eval-service
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8005
+    ports: ["127.0.0.1:8005:8005"]
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator-api:8006
+      EVAL_DATA_DIR: /workspace/data/evaluation
+      EVAL_DATASET_PATH: /workspace/data/questions_setA_practice.json
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_REQUIRED: ${LANGFUSE_REQUIRED:-false}
+      LANGFUSE_TRACING_ENABLED: ${LANGFUSE_TRACING_ENABLED:-true}
+    volumes:
+      - ./data:/workspace/data
+      - ./services/eval-service/app:/workspace/services/eval-service/app:ro
+    depends_on:
+      orchestrator-api:
+        condition: service_healthy
+    healthcheck:
+      <<: *api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"]
+
+volumes:
+  processor-data:
+  retrieval-data:
+  corpus-data:
+  model-cache:

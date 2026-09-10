@@ -1,6 +1,6 @@
 import gradio as gr
 
-from client import get_dashboard_data
+from app.client import get_dashboard_data
 
 
 def build_dashboard_tab():
