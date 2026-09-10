@@ -29,6 +29,7 @@ def create_chunks(doc: ProcessedDocument):
                         chunk_id=block.block_id,
                         text=rich_text,
                         metadata={
+                            "chunk_id": block.block_id,
                             "document_id": doc.document_id,
                             "page_number": page.page_number,
                             "type": "text",
@@ -47,6 +48,7 @@ def create_chunks(doc: ProcessedDocument):
                 chunk_id=table.table_id,
                 text=table_rich_text,
                 metadata={
+                    "chunk_id": table.table_id,
                     "document_id": doc.document_id,
                     "page_number": page.page_number,
                     "type": "table",

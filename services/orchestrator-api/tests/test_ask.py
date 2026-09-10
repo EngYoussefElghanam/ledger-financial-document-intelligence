@@ -5,7 +5,7 @@ import app.main as main_module
 client = TestClient(main_module.app)
 
 
-async def _fake_ask_agent(question, document_id=None):
+async def _fake_ask_agent(question, document_id=None, **kwargs):
     return {
         "answer_type": "direct",
         "evidence": [{"document_id": "doc_017", "page": 1}],
@@ -13,11 +13,13 @@ async def _fake_ask_agent(question, document_id=None):
     }
 
 
-async def _fake_validate_valid(answer):
+async def _fake_validate_valid(answer, **kwargs):
     return {"valid": True, "answer": answer}
 
 
-async def _fake_validate_invalid(answer):
+async def _fake_validate_invalid(answer, **kwargs):
+    if answer["answer_type"] == "insufficient_evidence":
+        return {"valid": True, "answer": answer}
     return {"valid": False, "reason": "Missing required key 'formula'"}
 
 
