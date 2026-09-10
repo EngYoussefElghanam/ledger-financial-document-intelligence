@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.graph import graph
+from app.telemetry import as_dict, telemetry_scope
 
 app = FastAPI(
     title="agent-service",
@@ -17,6 +18,11 @@ app = FastAPI(
 class AskRequest(BaseModel):
     question: str
     document_id: Optional[str] = None  # Optional: target a specific document, otherwise searches across the entire corpus
+    include_diagnostics: bool = False
+    evaluation_variant: Literal["reranker_on", "reranker_off"] = "reranker_on"
+    request_id: str | None = None
+    trace_id: str | None = None
+    parent_span_id: str | None = None
 
 
 class AskResponse(BaseModel):
@@ -31,8 +37,7 @@ def health() -> dict:
     return {"status": "ok", "service": "agent-service"}
 
 
-@app.post("/ask", response_model=AskResponse)
-@app.post("/answer", response_model=AskResponse)
+@app.post("/ask")
 def ask(request: AskRequest):
     """
     Main entrypoint: accepts a question (and optional document_id),
@@ -54,7 +59,15 @@ def ask(request: AskRequest):
     }
 
     try:
-        result = graph.invoke(initial_state)
+        with telemetry_scope(
+            request.evaluation_variant,
+            trace_id=request.trace_id,
+            parent_span_id=request.parent_span_id,
+            question=request.question,
+            request_id=request.request_id,
+        ) as telemetry:
+            result = graph.invoke(initial_state)
+            diagnostics = as_dict(telemetry)
     except Exception as e:
         # Unexpected pipeline error (e.g. retrieval-api connection failure)
         raise HTTPException(status_code=500, detail=f"agent pipeline error: {e}")
@@ -64,7 +77,18 @@ def ask(request: AskRequest):
         "evidence": [],
         "params": {"reason": "Agent did not produce an answer"},
     }
-    return answer
+    if request.include_diagnostics:
+        diagnostics.update(
+            {
+                "request_id": request.request_id,
+                "trace_id": request.trace_id,
+                "question_type": result.get("question_type"),
+                "retries": result.get("retries", 0),
+                "selected_evidence": result.get("evidence") or [],
+            }
+        )
+        return {"answer": answer, "diagnostics": diagnostics}
+    return AskResponse.model_validate(answer).model_dump()
 
 
 if __name__ == "__main__":

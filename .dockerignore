@@ -8,3 +8,14 @@ data/uploads/
 *.json
 !document.schema.json
 .pytest_cache/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/qdrant_data/
+src/
+data/
+.env
+.env.*
+*.zip
+*.pdf

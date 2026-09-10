@@ -4,7 +4,7 @@
 
 | Service              | Port |
 | -------------------- | ---- |
-| orchestrator-api     | 8000 |
+| orchestrator-api     | 8006 |
 | doc-processor-api    | 8001 |
 | retrieval-api        | 8002 |
 | agent-service        | 8003 |

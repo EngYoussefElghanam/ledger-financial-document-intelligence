@@ -1,25 +1,32 @@
 import uuid
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from schemas.document import ProcessedDocument
-from schemas.search_request import SearchRequest
 from schemas.search_filter_request import SearchFilterRequest
+from schemas.search_request import SearchRequest
 from qdrant_client import models
 
 from app.chunker import create_chunks
 from app.database import qdrant_client, init_db
 from app.embeddings import get_dense_vectors, get_sparse_vectors, get_rerank_scores
+from ledger_observability import observation
 
-app = FastAPI(title="Retrieval API", description="An API that retrievs the relevant parts from the document")
+app = FastAPI(title="Retrieval API", description="Retrieve relevant content from financial documents")
 
 # Setup database on startup
 init_db()
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "indexed_chunks": qdrant_client.count(collection_name="financials", exact=True).count}
+
 @app.post("/ingest")
-async def ingest_document(doc: ProcessedDocument):
+def ingest_document(doc: ProcessedDocument):
     try:
 
         # Creates the chunks from the doc
         chunks = create_chunks(doc)
+        if not chunks:
+            raise ValueError("Document has no searchable text or tables")
 
         # A list of the text of all chunks
         chunk_texts = [chunk.text for chunk in chunks]
@@ -42,7 +49,7 @@ async def ingest_document(doc: ProcessedDocument):
                     # uuid5 makes a unique determinestic id based on some input you give it (chunk_id in this case)
                     # we use uuid5 instead of 4, as this helps us generate the same id if the user enters-
                     # duplicate files in the program
-                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, str(chunk.chunk_id))), # A unique id for our point
+                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{doc.document_id}:{chunk.chunk_id}")),
                     vector={
                         "dense": dense_vec,
                         "bm25": models.SparseVector(
@@ -56,10 +63,28 @@ async def ingest_document(doc: ProcessedDocument):
                 )
             )
 
+        # Replace this document's points so a shorter reingestion cannot leave
+        # stale chunks searchable.
+        qdrant_client.delete(
+            collection_name="financials",
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=doc.document_id),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+
         # Save to our database
         qdrant_client.upsert(
             collection_name="financials", 
-            points=points_to_upsert
+            points=points_to_upsert,
+            wait=True,
         )
         
         return {"status": "success", "total_chunks": len(chunks)}
@@ -68,8 +93,7 @@ async def ingest_document(doc: ProcessedDocument):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/search")
-async def search_documents(request: SearchRequest):
+def _search_documents(request: SearchRequest):
     try:
 
         # Translate query to vectors
@@ -77,22 +101,38 @@ async def search_documents(request: SearchRequest):
         # Also the function returns a list of vectors, and since we only expect there to be one vector-
         # which is the vector embedding for the query we sent, then we only take the 0th vector in the list-
         # Which is the only vector there
-        dense_vec = get_dense_vectors([request.query])[0]
-        sparse_vec = get_sparse_vectors([request.query])[0]
+        with observation(
+            "retrieval.embed_query",
+            as_type="embedding",
+            input={"query": request.query},
+        ) as embedding_span:
+            dense_vec = get_dense_vectors([request.query])[0]
+            sparse_vec = get_sparse_vectors([request.query])[0]
+            embedding_span.update(output={"dense_dimensions": len(dense_vec)})
 
         fetch_limit = max(request.limit * 4, 20) # set minimum fetched chunks to 20
 
-        # A filter is used if the agent wants to search one specific document
-        query_filter = None
+        # Apply metadata filters before candidate selection.
+        conditions = []
         if request.document_id:
-            query_filter = models.Filter(
-                must = [
-                    models.FieldCondition(
-                        key="document_id",
-                        match=models.MatchValue(value=request.document_id)
-                    )
-                ]
+            conditions.append(
+                models.FieldCondition(
+                    key="document_id", match=models.MatchValue(value=request.document_id)
+                )
             )
+        if request.content_type:
+            conditions.append(
+                models.FieldCondition(
+                    key="type", match=models.MatchValue(value=request.content_type)
+                )
+            )
+        if request.section:
+            conditions.append(
+                models.FieldCondition(
+                    key="section", match=models.MatchValue(value=request.section)
+                )
+            )
+        query_filter = models.Filter(must=conditions) if conditions else None
 
         # Perform search
         # This performs 2 searchs, one use the "dense" and one using "bm25"
@@ -102,35 +142,49 @@ async def search_documents(request: SearchRequest):
         # We limit it at fetch_limit and not request_limit as we fetch a relatively big subset here-
         # which will be passed to another ranking algorithm, then the results are trimmed to the first-
         # "request_limit" chunks
-        search_results = qdrant_client.query_points(
-            collection_name="financials",
-            prefetch=[
-                # Search by meaning
-                models.Prefetch(
-                    query=dense_vec,
-                    using="dense",
-                    limit=fetch_limit,
-                ),
-                # Search by exact keyword match
-                models.Prefetch(
-                    query=models.SparseVector(
-                        indices=sparse_vec.indices,
-                        values=sparse_vec.values
+        with observation(
+            "retrieval.hybrid_rrf",
+            input={"fetch_limit": fetch_limit, "filters": bool(query_filter)},
+        ) as hybrid_span:
+            search_results = qdrant_client.query_points(
+                collection_name="financials",
+                prefetch=[
+                    models.Prefetch(query=dense_vec, using="dense", limit=fetch_limit),
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=sparse_vec.indices, values=sparse_vec.values
+                        ),
+                        using="bm25",
+                        limit=fetch_limit,
                     ),
-                    using="bm25",
-                    limit=fetch_limit,
-                )
-            ],
-            # Fuse the two sub-queries together
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
-            query_filter=query_filter,
-            limit=fetch_limit
-        )
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                query_filter=query_filter,
+                limit=fetch_limit,
+            )
+            hybrid_span.update(output={"candidate_count": len(search_results.points)})
 
         if not search_results.points:
-            return {"results": []}
+            response = {"results": []}
+            if request.include_diagnostics:
+                response["diagnostics"] = {
+                    "reranker_enabled": request.rerank,
+                    "candidate_count": 0,
+                    "candidates": [],
+                }
+            return response
 
         candidate_texts = [point.payload.get("text") for point in search_results.points]
+        candidate_diagnostics = [
+            {
+                "chunk_id": point.payload.get("chunk_id"),
+                "rank": rank,
+                "score": point.score,
+                "document_id": point.payload.get("document_id"),
+                "page_number": point.payload.get("page_number"),
+            }
+            for rank, point in enumerate(search_results.points, start=1)
+        ]
 
 
         # This is an additional ranker that ranks the chunks
@@ -139,16 +193,24 @@ async def search_documents(request: SearchRequest):
         # so instead we retrieve "fetch_limit" chunks using the lighter ranking method-
         # then we run this heavier one on the fetched subset of chunks-
         # to have better ranks for the chunks
-        rerank_scores = get_rerank_scores(request.query, candidate_texts)
+        if request.rerank:
+            with observation(
+                "retrieval.cross_encoder_rerank",
+                input={"query": request.query, "candidate_count": len(candidate_texts)},
+            ) as rerank_span:
+                rerank_scores = get_rerank_scores(request.query, candidate_texts)
+                rerank_span.update(output={"score_count": len(rerank_scores)})
 
-        for point, score in zip(search_results.points, rerank_scores):
-            point.score = score # Overwrite Qdrant RRF score with the Reranker score
+            for point, score in zip(search_results.points, rerank_scores):
+                point.score = score
 
-        search_results.points.sort(key=lambda x: x.score, reverse=True)
+            search_results.points.sort(key=lambda x: x.score, reverse=True)
 
         formatted_results = []
-        for point in search_results.points:
+        for rank, point in enumerate(search_results.points, start=1):
             formatted_results.append({
+                "chunk_id": point.payload.get("chunk_id"),
+                "rank": rank,
                 "score": point.score,
                 "text": point.payload.get("text"),
                 "metadata": {
@@ -161,10 +223,35 @@ async def search_documents(request: SearchRequest):
 
         formatted_results = formatted_results[:request.limit]
 
-        return {"results": formatted_results}
+        response = {"results": formatted_results}
+        if request.include_diagnostics:
+            response["diagnostics"] = {
+                "reranker_enabled": request.rerank,
+                "candidate_count": len(candidate_diagnostics),
+                "candidates": candidate_diagnostics,
+            }
+        return response
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search")
+def search_documents(
+    request: SearchRequest,
+    x_langfuse_trace_id: str | None = Header(default=None),
+    x_langfuse_parent_id: str | None = Header(default=None),
+):
+    with observation(
+        "retrieval.search",
+        trace_id=x_langfuse_trace_id,
+        parent_span_id=x_langfuse_parent_id,
+        input=request.model_dump(),
+        metadata={"reranker_enabled": str(request.rerank).lower()},
+    ) as span:
+        response = _search_documents(request)
+        span.update(output=response)
+        return response
 
 
 @app.post("/filter")

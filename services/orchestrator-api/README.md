@@ -13,7 +13,7 @@ document listings from doc-processor-api into the shape ui-service expects.
 
 ## Run
 
-    python -m uvicorn app.main:app --reload --port 8000
+    python -m uvicorn app.main:app --reload --port 8006
 
 ## Test
 
@@ -22,6 +22,9 @@ document listings from doc-processor-api into the shape ui-service expects.
 ## Endpoints
 
 - `POST /ask` — `{question, document_id?}` -> schema-compliant answer dict
+- `POST /documents/ingest` — multipart PDF -> durable processing/indexing record
+- `POST /documents/{id}/resume` — resume retrieval after a partial failure
+- `GET /ingestion` — uploaded/processed/indexed/failed status and counts
 - `GET /documents` / `GET /documents/{id}` — proxied + reshaped from doc-processor-api
 - `GET /dashboard` — document count + recent query log
 - `GET /health`
@@ -32,9 +35,9 @@ DOC_PROCESSOR_URL, RETRIEVAL_URL, AGENT_SERVICE_URL, ANSWER_VALIDATOR_URL
 
 ## Mocking
 
-USE_MOCK_AGENT=true (default) returns a random canned answer instead of
-calling agent-service, since it doesn't exist yet. Set to false once a
-real agent-service is running on AGENT_SERVICE_URL.
+`USE_MOCK_AGENT=false` is the default and calls agent-service `/ask`.
+Set it true only for an intentional mock demonstration; `/health` reports
+the active mode.
 
 ## Design note: invalid answers
 

@@ -5,7 +5,7 @@ model) so we can produce the spec's exact log message formats instead of
 FastAPI's generic 422 errors.
 """
 
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, Header
 from pydantic import ValidationError
 
 from schemas.answer import (
@@ -14,6 +14,7 @@ from schemas.answer import (
     MultiSpanAnswer,
     InsufficientEvidenceAnswer,
 )
+from ledger_observability import observation
 
 app = FastAPI(title="answer-validator-api")
 
@@ -30,12 +31,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/validate_answer")
-def validate_answer(payload: dict = Body(...)) -> dict:
+def _validate_answer(payload: dict) -> dict:
     answer_type = payload.get("answer_type")
 
     # Check 1: is answer_type one we recognize at all? 
-    if answer_type not in ANSWER_MODELS:
+    if not isinstance(answer_type, str) or answer_type not in ANSWER_MODELS:
         reason = f"Unknown or missing answer_type '{answer_type}'"
         print(f"[ANSWER-VALIDATOR-ERROR] Invalid answer. Reason: {reason}")
         return {"valid": False, "reason": reason}
@@ -76,6 +76,23 @@ def validate_answer(payload: dict = Body(...)) -> dict:
         f"'{answer_type}' with evidence {evidence_log}"
     )
     return {"valid": True, "answer": validated.model_dump()}
+
+
+@app.post("/validate_answer")
+def validate_answer(
+    payload: dict = Body(...),
+    x_langfuse_trace_id: str | None = Header(default=None),
+    x_langfuse_parent_id: str | None = Header(default=None),
+) -> dict:
+    with observation(
+        "validator.validate_answer",
+        trace_id=x_langfuse_trace_id,
+        parent_span_id=x_langfuse_parent_id,
+        input=payload,
+    ) as span:
+        result = _validate_answer(payload)
+        span.update(output=result)
+        return result
 
 
 def _first_missing_key(e: ValidationError) -> str | None:

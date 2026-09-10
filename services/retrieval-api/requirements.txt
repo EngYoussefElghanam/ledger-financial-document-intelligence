@@ -6,3 +6,5 @@ uvicorn
 pydantic
 pytest
 httpx
+langfuse>=4,<5
+-e ../../shared

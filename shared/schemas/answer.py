@@ -1,81 +1,69 @@
-"""
-This is the answer contract, the strict schema both agent-service(producer) and answer-validator-api(consumer) depend on.
+"""Typed answer contract shared by the agent and answer validator."""
 
-Design: a discriminated union on `answer_type`. Each concrete answer type
-gets its own `params` model with exactly the fields the spec requires —
-this is what lets us reject e.g. a 'calculated' answer missing 'formula'
-with a specific error instead of a generic "invalid schema" message.
-"""
+from typing import Annotated, Literal, Union
 
-from typing import Literal, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, StrictStr
 
 
-class Evidence(BaseModel):
-    document_id: str
-    page: int
-    section: str | None = None  # optional per the spec's examples
+class ContractModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
-# One params model per answer_type 
-
-class DirectParams(BaseModel):
-    value: str | int | float
-
-
-class CalculatedParams(BaseModel):
-    value: int | float
-    formula: str
+class Evidence(ContractModel):
+    document_id: str = Field(min_length=1)
+    page: int = Field(ge=1, strict=True)
+    section: str | None = None
 
 
-class MultiSpanParams(BaseModel):
-    values: list[str | int | float]
-
-    @field_validator("values")
-    @classmethod
-    def must_have_at_least_two(cls, v):
-        # Spec: multi_span means "two or more distinct values" — a single
-        # value should have been sent as `direct` instead.
-        if len(v) < 2:
-            raise ValueError("multi_span requires at least 2 values")
-        return v
+Value = Union[StrictStr, StrictInt, StrictFloat]
+Scale = Literal["", "thousand", "million", "billion", "percent"]
 
 
-class InsufficientEvidenceParams(BaseModel):
-    reason: str
+class DirectParams(ContractModel):
+    value: Value
+    scale: Scale = ""
 
 
-# One full answer model per type, each pinning its own params type
+class CalculatedParams(ContractModel):
+    value: Union[StrictInt, StrictFloat]
+    formula: str = Field(min_length=1)
+    scale: Scale = ""
 
-class DirectAnswer(BaseModel):
+
+class MultiSpanParams(ContractModel):
+    values: list[Value] = Field(min_length=2)
+    scale: Scale = ""
+
+
+class InsufficientEvidenceParams(ContractModel):
+    reason: str = Field(min_length=1)
+
+
+class DirectAnswer(ContractModel):
     answer_type: Literal["direct"]
-    evidence: list[Evidence] = Field(..., min_length=1)
+    evidence: list[Evidence] = Field(min_length=1)
     params: DirectParams
 
 
-class CalculatedAnswer(BaseModel):
+class CalculatedAnswer(ContractModel):
     answer_type: Literal["calculated"]
-    evidence: list[Evidence] = Field(..., min_length=1)
+    evidence: list[Evidence] = Field(min_length=1)
     params: CalculatedParams
 
 
-class MultiSpanAnswer(BaseModel):
+class MultiSpanAnswer(ContractModel):
     answer_type: Literal["multi_span"]
-    evidence: list[Evidence] = Field(..., min_length=1)
+    evidence: list[Evidence] = Field(min_length=1)
     params: MultiSpanParams
 
 
-class InsufficientEvidenceAnswer(BaseModel):
+class InsufficientEvidenceAnswer(ContractModel):
     answer_type: Literal["insufficient_evidence"]
-    evidence: list[Evidence] = Field(default_factory=list)  # allowed empty
+    evidence: list[Evidence]
     params: InsufficientEvidenceParams
 
 
-# The discriminated union: this is what you'll import elsewhere 
-
-Answer = Union[
-    DirectAnswer,
-    CalculatedAnswer,
-    MultiSpanAnswer,
-    InsufficientEvidenceAnswer,
+Answer = Annotated[
+    Union[DirectAnswer, CalculatedAnswer, MultiSpanAnswer, InsufficientEvidenceAnswer],
+    Field(discriminator="answer_type"),
 ]

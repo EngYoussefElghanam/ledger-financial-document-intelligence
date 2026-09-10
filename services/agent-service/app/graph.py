@@ -11,8 +11,27 @@ from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.tools import calculate, search_documents, search_tables, filter_documents
+from app.telemetry import record_llm
+from app.config import AGENT_MODEL
+from ledger_observability import observation
 
-llm = ChatGroq(model="qwen/qwen3.8-27b", temperature=0)
+llm = ChatGroq(model=AGENT_MODEL, temperature=0)
+
+
+def invoke_llm(stage: str, prompt: str):
+    with observation(
+        stage,
+        as_type="generation",
+        input=prompt,
+        model=AGENT_MODEL,
+    ) as span:
+        response = llm.invoke(prompt)
+        record_llm(stage, response)
+        span.update(
+            output=extract_text(response.content),
+            usage_details=getattr(response, "usage_metadata", None),
+        )
+        return response
 
 
 class AgentState(TypedDict):
@@ -49,7 +68,7 @@ Question: {state['question']}
 
 Reply with ONLY one word: numerical, table, or text."""
 
-    response = llm.invoke(prompt)
+    response = invoke_llm("classify_question", prompt)
     category = extract_text(response.content).strip().lower()
 
     if category not in ["numerical", "table", "text"]:
@@ -116,21 +135,28 @@ def check_evidence_sufficiency(state: AgentState) -> dict:
 
     q_type = state.get("question_type", "text")
 
+    entity_guidance = (
+        "(Note: The evidence is extracted directly from the target company's financial filing, "
+        "so references to 'the Company' or general tabular line items correspond to the entity in question.)"
+    )
+
     # For numerical questions, check if required numbers for calculation exist
     if q_type == "numerical":
         prompt = f"""{evidence_text}
 
 Does this evidence contain the financial figures or numbers needed to calculate or answer the question "{state['question']}"?
+{entity_guidance}
 
 Reply with ONLY one word: yes or no."""
     else:
         prompt = f"""{evidence_text}
 
-Does this answer the question "{state['question']}"?
+Does this evidence contain the answer to the question "{state['question']}"?
+{entity_guidance}
 
 Reply with ONLY one word: yes or no."""
 
-    response = llm.invoke(prompt)
+    response = invoke_llm("check_evidence_sufficiency", prompt)
     answer = extract_text(response.content).strip().lower()
 
     return {"is_sufficient": "yes" in answer}
@@ -175,14 +201,15 @@ Evidence:
 Reply with ONLY a JSON object, no markdown, no extra text:
 {{
   "formula": "<a valid arithmetic expression using ONLY numbers found in the evidence, e.g. '(3875-3410)/3410*100'>",
-  "operand_evidence_indices": [<list of 0-based indices into the evidence list above that were used as operands>]
+  "operand_evidence_indices": [<list of 0-based indices into the evidence list above that were used as operands>],
+  "scale": "" | "thousand" | "million" | "billion" | "percent"
 }}
 
 If the evidence does not contain the numbers needed to answer, reply with:
 {{"formula": null, "operand_evidence_indices": []}}
 """
 
-    response = llm.invoke(extraction_prompt)
+    response = invoke_llm("extract_operands", extraction_prompt)
     raw = extract_text(response.content).strip()
     raw = raw.replace("```json", "").replace("```", "").strip()
 
@@ -193,6 +220,7 @@ If the evidence does not contain the numbers needed to answer, reply with:
 
     formula = extraction.get("formula")
     used_indices = extraction.get("operand_evidence_indices", [])
+    scale = str(extraction.get("scale") or "").lower()
 
     if not formula:
         return {"calculation": None}
@@ -202,7 +230,13 @@ If the evidence does not contain the numbers needed to answer, reply with:
         return {"calculation": None}
 
     # Fix 1: Strictly require valid operand citations - never fake citations with evidence[0]
-    if not used_indices:
+    if (
+        not used_indices
+        or not isinstance(used_indices, list)
+        or any(type(index) is not int or index < 0 or index >= len(evidence) for index in used_indices)
+    ):
+        return {"calculation": None}
+    if scale not in {"", "thousand", "million", "billion", "percent"}:
         return {"calculation": None}
 
     # Execute deterministic calculation tool via Python
@@ -220,7 +254,6 @@ If the evidence does not contain the numbers needed to answer, reply with:
             "section": evidence[i].get("metadata", {}).get("section"),
         }
         for i in used_indices
-        if i < len(evidence)
     ]
 
     # If any cited index was out of range or empty, reject rather than fabricate
@@ -231,6 +264,7 @@ If the evidence does not contain the numbers needed to answer, reply with:
         "calculation": {
             "value": calc_value,
             "formula": formula,
+            "scale": scale,
             "evidence": operand_evidence,
         }
     }
@@ -260,6 +294,7 @@ def generate_answer(state: AgentState) -> dict:
                 "params": {
                     "value": calculation["value"],
                     "formula": calculation["formula"],
+                    "scale": calculation.get("scale", ""),
                 },
             }
         }
@@ -281,16 +316,16 @@ Evidence:
 Reply with ONLY a JSON object matching exactly this schema (no markdown, no extra text):
 {{
   "answer_type": "direct" | "multi_span",
-  "evidence": [{{"document_id": "...", "page": 0, "section": "..."}}],
+  "evidence": [{{"document_id": "...", "page": 1, "section": "..."}}],
   "params": {{}}
 }}
 
 Rules:
-- "direct": single fact, params = {{"value": ...}}
-- "multi_span": params = {{"values": [...]}}
+- "direct": single fact, params = {{"value": ..., "scale": "" | "thousand" | "million" | "billion" | "percent"}}
+- "multi_span": params = {{"values": [...], "scale": "" | "thousand" | "million" | "billion" | "percent"}}
 """
 
-    response = llm.invoke(prompt)
+    response = invoke_llm("generate_answer", prompt)
     text = extract_text(response.content).strip()
     text = text.replace("```json", "").replace("```", "").strip()
 

@@ -14,7 +14,7 @@ Every answer returned by this service is grounded in real retrieved evidence. If
 4. [API Endpoints & Contract](#4-api-endpoints--contract)
 5. [Running Locally](#5-running-locally)
 6. [Validation & Failure Analysis](#6-validation--failure-analysis)
-7. [Observability & Tracing (LangSmith)](#7-observability--tracing-langsmith)
+7. [Observability & Tracing (Langfuse)](#7-observability--tracing-langfuse)
 
 ---
 
@@ -169,7 +169,7 @@ Interactive Swagger documentation is available at `http://localhost:8003/docs`.
 
 - Python 3.11 or 3.12
 - An active `GROQ_API_KEY` (Free tier provides 14,400 requests/day on `qwen/qwen3.8-27b`)
-- `retrieval-api` running on port 8000
+- `retrieval-api` running on port 8002
 
 ### Setup & Launch
 
@@ -185,12 +185,12 @@ pip install -r requirements.txt
 GROQ_API_KEY=gsk_...
 
 # Service URLs
-RETRIEVAL_API_URL=http://localhost:8000
+RETRIEVAL_API_URL=http://localhost:8002
 
-# Observability & Tracing (LangSmith)
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=lsv2_pt_...
-LANGSMITH_PROJECT=ledger-agent-service
+# Observability & Tracing (Langfuse)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
 
 # 4. Start the service
 uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
@@ -245,13 +245,19 @@ Per the project specification, five concrete failure modes were diagnosed, root-
    
 ---
 
-## 7. Observability & Tracing (LangSmith)
+## 7. Observability & Tracing (Langfuse)
 
-The service natively integrates with **LangSmith** for full end-to-end tracing, monitoring, and debugging of the LangGraph execution tree. Every request to `POST /ask` is captured and structured hierarchically:
+The service integrates with **Langfuse** for end-to-end evaluation tracing. The
+evaluation runner propagates the active trace through orchestrator, agent,
+retrieval, and validation:
 
-- **Per-Node Granularity:** Real-time visibility into inputs, outputs, prompts, and raw LLM completions for each node (`classify_question`, `retrieve_evidence`, `check_evidence_sufficiency`, `extract_and_calculate`, `generate_answer`).
+- **Generation Granularity:** Inputs, outputs, model, and usage for classification, sufficiency, operand extraction, and answer generation.
 - **Performance Profiling:** Precise latency breakdown per step, identifying bottleneck stages (e.g., retrieval network roundtrip vs. LLM token generation).
 - **Token & Cost Auditing:** Live tracking of prompt tokens, completion tokens, and approximate invocation costs per query.
-- **Visual Failure Inspection:** If an unanswerable query triggers the retry loop, LangSmith visually maps the conditional fallback to `insufficient_evidence`.
+- **Visual Failure Inspection:** Retrieval ranks, retries, calculation, validation, and the final answer share one trace ID.
 
-To view traces, visit [smith.langchain.com](https://smith.langchain.com) under the project `ledger-agent-service`.
+View traces at the configured `LANGFUSE_BASE_URL`. The Langfuse dataset
+experiment command is documented in `services/eval-service/README.md`.
+
+> Retrieval runs at `http://localhost:8002` by default. All services load the
+> repository-root `.env`; copy `.env.example` there before starting locally.
