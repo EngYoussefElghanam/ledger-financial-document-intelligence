@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LEDGER PDF evidence viewer</title>
+    <link rel="stylesheet" href="/assets/pdfjs/web/pdf_viewer.css">
+    <link rel="stylesheet" href="/viewer/viewer.css">
+  </head>
+  <body>
+    <header id="toolbar">
+      <strong>LEDGER</strong>
+      <button id="previous" type="button" aria-label="Previous page">&#8592;</button>
+      <label>Page <input id="page-number" type="number" min="1" value="1"></label>
+      <span id="page-count">/ ?</span>
+      <button id="next" type="button" aria-label="Next page">&#8594;</button>
+      <button id="zoom-out" type="button" aria-label="Zoom out">&#8722;</button>
+      <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+      <label class="search-label">
+        <span class="sr-only">Search document</span>
+        <input id="search" type="search" placeholder="Search evidence">
+      </label>
+      <button id="find-previous" type="button">Previous match</button>
+      <button id="find-next" type="button">Next match</button>
+      <span id="match-count" aria-live="polite"></span>
+      <a id="download" download>Download</a>
+    </header>
+    <div id="status" role="status">Loading PDF…</div>
+    <div id="viewer-container" role="main" tabindex="0">
+      <div id="viewer" class="pdfViewer"></div>
+    </div>
+    <script type="module" src="/viewer/viewer.mjs"></script>
+  </body>
+</html>

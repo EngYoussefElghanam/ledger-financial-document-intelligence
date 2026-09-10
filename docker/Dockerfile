@@ -1,3 +1,8 @@
+FROM node:22-slim AS ui-assets
+WORKDIR /ui
+COPY services/ui-service/package.json services/ui-service/package-lock.json ./
+RUN npm ci --omit=dev
+
 FROM python:3.11-slim AS dependencies
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /workspace
@@ -8,6 +13,7 @@ RUN pip install /workspace/shared
 
 FROM dependencies AS core
 COPY services/ /workspace/services/
+COPY --from=ui-assets /ui/node_modules/pdfjs-dist /workspace/services/ui-service/node_modules/pdfjs-dist
 
 # Processor and retrieval share one CPU-only image. No dataset or model
 # weights are downloaded during the build; models use a persisted runtime cache.

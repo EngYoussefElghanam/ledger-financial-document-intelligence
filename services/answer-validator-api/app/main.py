@@ -75,7 +75,7 @@ def _validate_answer(payload: dict) -> dict:
         f"[ANSWER-VALIDATOR-SUCCESS] Received and validated answer of type "
         f"'{answer_type}' with evidence {evidence_log}"
     )
-    return {"valid": True, "answer": validated.model_dump()}
+    return {"valid": True, "answer": validated.model_dump(exclude_none=True)}
 
 
 @app.post("/validate_answer")

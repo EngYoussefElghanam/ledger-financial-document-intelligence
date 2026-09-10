@@ -14,3 +14,4 @@ data/evaluation/*
 batch_eval_report.json
 tests/fixtures/*.pdf
 venv/
+node_modules/

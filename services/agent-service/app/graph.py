@@ -55,6 +55,80 @@ def extract_text(content) -> str:
     return str(content)
 
 
+def _clean_retrieval_text(value: str) -> str:
+    """Remove labels added by the chunker and normalize PDF-search whitespace."""
+    text = str(value or "")
+    if "\n Content:" in text:
+        text = text.split("\n Content:", 1)[1]
+    elif "\nData:\n" in text:
+        text = text.split("\nData:\n", 1)[1]
+    return " ".join(text.replace(" | ", " ").split())
+
+
+def _citation_for(item: dict, *, search_terms: list[str] | None = None) -> dict:
+    """Create a citation whose quote is guaranteed to come from retrieved text."""
+    metadata = item.get("metadata") or {}
+    clean_text = _clean_retrieval_text(item.get("text", ""))
+    quote = clean_text
+    if search_terms and clean_text:
+        lowered = clean_text.casefold()
+        positions = [lowered.find(term.casefold()) for term in search_terms if term]
+        positions = [position for position in positions if position >= 0]
+        if positions:
+            start = max(0, min(positions) - 90)
+            end = min(len(clean_text), min(positions) + 180)
+            quote = clean_text[start:end].strip(" ,.;:")
+    return {
+        "document_id": metadata.get("document_id"),
+        "page": metadata.get("page_number"),
+        "section": metadata.get("section"),
+        "filename": metadata.get("source_filename"),
+        "quote": quote,
+    }
+
+
+def _ground_answer_citations(answer: dict, evidence: list[dict]) -> dict:
+    """Attach source filenames and reject model-authored quotes not in retrieval."""
+    citations = answer.get("evidence")
+    if not isinstance(citations, list):
+        raise ValueError("answer evidence must be a list")
+    for citation in citations:
+        if not isinstance(citation, dict):
+            raise ValueError("each citation must be an object")
+        page_matches = [
+            item for item in evidence
+            if (item.get("metadata") or {}).get("document_id") == citation.get("document_id")
+            and (item.get("metadata") or {}).get("page_number") == citation.get("page")
+        ]
+        matches = [
+            item for item in page_matches
+            if (
+                not citation.get("section")
+                or (item.get("metadata") or {}).get("section") == citation.get("section")
+            )
+        ]
+        matches = matches or page_matches
+        if not matches:
+            raise ValueError("citation does not map to retrieved evidence")
+        proposed = " ".join(str(citation.get("quote") or "").split())
+        source = next(
+            (
+                item for item in matches
+                if proposed.casefold() in _clean_retrieval_text(item.get("text", "")).casefold()
+            ),
+            matches[0],
+        )
+        source_text = _clean_retrieval_text(source.get("text", ""))
+        quote_start = source_text.casefold().find(proposed.casefold()) if proposed else -1
+        if quote_start >= 0:
+            proposed = source_text[quote_start:quote_start + len(proposed)]
+        else:
+            proposed = source_text[:240].strip()
+        citation["quote"] = proposed
+        citation["filename"] = (source.get("metadata") or {}).get("source_filename")
+    return answer
+
+
 def classify_question(state: AgentState) -> dict:
     """Classifies question phrasing into: numerical, table, or text."""
     prompt = f"""Classify this financial question into exactly one category, based on how the question is PHRASED, not on where the answer might typically be found in a document:
@@ -247,12 +321,9 @@ If the evidence does not contain the numbers needed to answer, reply with:
 
     calc_value = tool_result.get("result")
 
+    formula_terms = re.findall(r"\d+(?:\.\d+)?", formula)
     operand_evidence = [
-        {
-            "document_id": evidence[i].get("metadata", {}).get("document_id"),
-            "page": evidence[i].get("metadata", {}).get("page_number"),
-            "section": evidence[i].get("metadata", {}).get("section"),
-        }
+        _citation_for(evidence[i], search_terms=formula_terms)
         for i in used_indices
     ]
 
@@ -301,6 +372,7 @@ def generate_answer(state: AgentState) -> dict:
 
     evidence_text = "\n".join([
         f"- {e.get('text', '')} (document: {e.get('metadata', {}).get('document_id')}, "
+        f"filename: {e.get('metadata', {}).get('source_filename')}, "
         f"page: {e.get('metadata', {}).get('page_number')}, section: {e.get('metadata', {}).get('section')})"
         for e in evidence
     ])
@@ -316,13 +388,14 @@ Evidence:
 Reply with ONLY a JSON object matching exactly this schema (no markdown, no extra text):
 {{
   "answer_type": "direct" | "multi_span",
-  "evidence": [{{"document_id": "...", "page": 1, "section": "..."}}],
+  "evidence": [{{"document_id": "...", "page": 1, "section": "...", "filename": "report.pdf", "quote": "exact quote from the evidence"}}],
   "params": {{}}
 }}
 
 Rules:
 - "direct": single fact, params = {{"value": ..., "scale": "" | "thousand" | "million" | "billion" | "percent"}}
 - "multi_span": params = {{"values": [...], "scale": "" | "thousand" | "million" | "billion" | "percent"}}
+- Every citation must include a concise, verbatim quote copied from its cited evidence chunk. Do not paraphrase the quote.
 """
 
     response = invoke_llm("generate_answer", prompt)
@@ -330,8 +403,11 @@ Rules:
     text = text.replace("```json", "").replace("```", "").strip()
 
     try:
-        answer = json.loads(text)
-    except json.JSONDecodeError:
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("answer must be a JSON object")
+        answer = _ground_answer_citations(parsed, evidence)
+    except (json.JSONDecodeError, ValueError):
         answer = {
             "answer_type": "insufficient_evidence",
             "evidence": [],

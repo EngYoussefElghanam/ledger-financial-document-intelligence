@@ -1,0 +1,7 @@
+{
+  "name": "ledger-ui-assets",
+  "private": true,
+  "dependencies": {
+    "pdfjs-dist": "6.2.108"
+  }
+}

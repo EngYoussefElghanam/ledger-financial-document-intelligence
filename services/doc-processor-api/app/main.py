@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from app.file_safety import (
     looks_like_pdf,
@@ -153,6 +154,38 @@ def get_document(document_id: str) -> ProcessedDocument:
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"No processed document '{document_id}'")
     return ProcessedDocument.model_validate_json(path.read_text())
+
+
+@app.get("/documents/{document_id}/pdf")
+def get_document_pdf(document_id: str) -> FileResponse:
+    """Return the original PDF, including uploads not represented in processed data."""
+    try:
+        document_id = sanitize_document_id(document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid document_id") from exc
+
+    processed_path = resolve_within(PROCESSED_DIR, f"{document_id}.json")
+    source_filename = f"{document_id}.pdf"
+    if processed_path.is_file():
+        document = ProcessedDocument.model_validate_json(processed_path.read_text())
+        source_filename = document.source_filename
+
+    try:
+        pdf_path = resolve_within(UPLOADS_DIR, source_filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Source PDF is unavailable") from exc
+    fallback_path = resolve_within(UPLOADS_DIR, f"{document_id}.pdf")
+    if not pdf_path.is_file() and fallback_path.is_file():
+        pdf_path = fallback_path
+        source_filename = fallback_path.name
+    if not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="Source PDF is unavailable")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=source_filename,
+        content_disposition_type="inline",
+    )
 
 
 @app.get("/documents")

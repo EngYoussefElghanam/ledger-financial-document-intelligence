@@ -19,6 +19,31 @@ init_db()
 def health():
     return {"status": "ok", "indexed_chunks": qdrant_client.count(collection_name="financials", exact=True).count}
 
+
+@app.get("/stats")
+def stats():
+    document_ids = set()
+    offset = None
+    while True:
+        records, offset = qdrant_client.scroll(
+            collection_name="financials",
+            offset=offset,
+            limit=256,
+            with_payload=["document_id"],
+            with_vectors=False,
+        )
+        document_ids.update(
+            record.payload.get("document_id")
+            for record in records
+            if record.payload and record.payload.get("document_id")
+        )
+        if offset is None:
+            break
+    return {
+        "indexed_chunks": qdrant_client.count(collection_name="financials", exact=True).count,
+        "indexed_documents": len(document_ids),
+    }
+
 @app.post("/ingest")
 def ingest_document(doc: ProcessedDocument):
     try:
@@ -215,6 +240,7 @@ def _search_documents(request: SearchRequest):
                 "text": point.payload.get("text"),
                 "metadata": {
                     "document_id": point.payload.get("document_id"),
+                    "source_filename": point.payload.get("source_filename"),
                     "page_number": point.payload.get("page_number"),
                     "section": point.payload.get("section"),
                     "type": point.payload.get("type")
@@ -312,6 +338,7 @@ async def filter_docs(request: SearchFilterRequest):
                 "text": record.payload.get("text"),
                 "metadata": {
                     "document_id": record.payload.get("document_id"),
+                    "source_filename": record.payload.get("source_filename"),
                     "page_number": record.payload.get("page_number"),
                     "section": record.payload.get("section"),
                     "type": record.payload.get("type")

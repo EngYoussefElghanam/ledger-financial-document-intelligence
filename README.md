@@ -100,8 +100,10 @@ Defines the strict answer contract used by the agent and validator. The
 - `multi_span`: at least two values, with evidence citations.
 - `insufficient_evidence`: a reason; evidence may be empty.
 
-`Evidence` contains `document_id`, `page`, and an optional `section`. The
-validator uses these models to reject missing fields, invalid types, unknown
+`Evidence` contains `document_id`, `page`, optional `section`, `filename`, and
+an exact retrieved `quote`. The UI uses these fields to open the source PDF in
+its bundled PDF.js viewer and highlight the cited phrase. The validator uses
+these models to reject missing fields, invalid types, unknown
 answer types, and unsupported empty citations.
 
 ### `shared/schemas/search_request.py`
