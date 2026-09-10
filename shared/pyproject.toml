@@ -1,6 +1,7 @@
 [project]
 name = "ledger-shared"
 version = "0.1.0"
+dependencies = ["pydantic>=2.10,<3"]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -81,10 +81,9 @@ The service holds no data of its own; everything is fetched from
 | `ORCHESTRATOR_URL` | Base URL of `orchestrator-api` |
 | `USE_MOCK` | `true` = serve built-in mock responses, no orchestrator needed. `false` = call the real API |
 
-The service currently runs entirely on **mocked** responses
-(`USE_MOCK=true`) since `orchestrator-api`'s `/ask`, `/dashboard`, and
-`/documents` endpoints aren't live yet. Switch `USE_MOCK=false` once they
-are, and confirm the real response shape matches the schema above.
+The service defaults to the real orchestrator (`USE_MOCK=false`). When mock
+mode is intentionally enabled, the UI shows a prominent banner because mock
+answers bypass retrieval and validation.
 
 We should add real error handling for a down/slow orchestrator, and a way
 to open the cited PDF page directly from an evidence citation, before

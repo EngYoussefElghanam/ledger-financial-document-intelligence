@@ -1,0 +1,19 @@
+# Web Framework & Server
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.10.0
+
+# Reasoning & LLMs
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-groq>=0.2.0
+langchain-google-genai>=2.0.0
+python-dotenv>=1.0.0
+
+# Tools & HTTP Client
+httpx>=0.28.0
+numexpr>=2.8.0
+langfuse>=4,<5
+
+# Shared schemas package (Local Monorepo Path)
+-e ../../shared

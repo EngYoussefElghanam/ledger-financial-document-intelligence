@@ -15,7 +15,12 @@ venv*/
 __pycache__/
 *.pyc
 *.egg-info/
-data/
+data/*
+!data/.gitkeep
+!data/evaluation/
+data/evaluation/*
+!data/evaluation/manifests/
+!data/evaluation/manifests/*.json
 *.zip
 batch_eval_report.json
 tests/fixtures/*.pdf
